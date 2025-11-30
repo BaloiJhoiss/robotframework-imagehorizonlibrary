@@ -1,8 +1,13 @@
 # -*- coding: utf-8 -*-
-from os import listdir
-from os.path import abspath, basename, dirname, isdir, isfile, splitext, join as path_join
+#from os import listdir
+#from os.path import abspath, basename, dirname, isdir, isfile, splitext, join as path_join
+from pathlib import Path
+from typing import List, Union, Type
+from enum import Enum
 from time import time, sleep
+from re import match  # added regex
 from contextlib import contextmanager
+from robot.libraries.BuiltIn import BuiltIn
 
 import pyautogui as ag
 from robot.api import logger as LOGGER
@@ -44,323 +49,48 @@ import traceback
 from ..errors import (
     ImageNotFoundException,
     InvalidImageException,
-    ReferenceFolderException,
-    ScreenshotFolderException,
-    StrategyException,
+    #ReferenceFolderException,
+    #ScreenshotFolderException,
+    #StrategyException,
+    ImageNotInPath,
+    PathNotSetException
 )
+
+class ImagePathTypeEnum(Enum):
+    STR_TYPE = True
+    LIST_TYPE = False
 
 
 class _RecognizeImages(object):
-    """Mixin implementing image recognition keywords."""
+    """
+    The _RecognizeImages class is a Robot Framework library designed to manage and retrieve image file paths.
+    It creates a lookup table of image names (without the .png extension) and their absolute paths,
+    allowing for quick and efficient access to image files from one or more specified directories.
+    The library is specifically tailored to handle .png files.
+    """
+    DFLT_TIMEOUT = 0
+    PIXEL_RATIO =0.0
 
-    dflt_timeout = 0
-
-    pixel_ratio = 0.0
-
-    def __get_pixel_ratio(self):
-        """Calculate display pixel ratio once and cache it."""
-        try:
-            ratio = ag.screenshot().size[0] / ag.size().width
-            self.pixel_ratio = float(ratio)
-        except Exception:
-            self.pixel_ratio = 1.0
-
-    def _normalize(self, path):
-        """Return an absolute path for a reference image or directory.
-
-        Parameters
-        ----------
-        path : str
-            Name of the reference image or folder. The value is normalized to
-            lower case, spaces are converted to underscores and the reference
-            folder path is prepended automatically. ``.png`` is appended if the
-            file extension is missing.
-
-        Returns
-        -------
-        str
-            Absolute path pointing to the resolved reference image or
-            directory.
-
-        Raises
-        ------
-        ReferenceFolderException
-            If the configured reference folder is invalid.
-        InvalidImageException
-            If ``path`` does not refer to an existing image or folder.
+ 
+    def __init__(self, reference_folder: List[str]| str):
         """
-        if (
-            not self.reference_folder
-            or not isinstance(self.reference_folder, str)
-            or not isdir(self.reference_folder)
-        ):
-            raise ReferenceFolderException(
-                "Reference folder is invalid: " '"%s"' % self.reference_folder
-            )
-        original_input = path
-        if not isinstance(path, str) or path == "":
-            raise InvalidImageException('"%s" is invalid image name.' % path)
-        path = str(path.lower().replace(" ", "_"))
-        path = abspath(path_join(self.reference_folder, path))
-        if not path.endswith(".png") and not isdir(path):
-            path += ".png"
-        if not isfile(path) and not isdir(path):
-            dir_name = dirname(path)
-            file_name = basename(path)
-            try:
-                candidates = listdir(dir_name)
-            except Exception:
-                candidates = []
-            matches = [c for c in candidates if c.lower() == file_name.lower()]
-            if matches:
-                selected = file_name if file_name in matches else matches[0]
-                path = abspath(path_join(dir_name, selected))
-            else:
-                raise InvalidImageException('Image path not found: "%s".' % path)
+        Parameters:
+        reference_folder: A string representing a single directory path or a list of strings, where each string is a
+        path to a directory.
 
-        original = basename(original_input)
-        actual = basename(path)
-        orig_name, orig_ext = splitext(original.replace(" ", "_"))
-        act_name, act_ext = splitext(actual)
-        if orig_name.lower() == act_name.lower():
-            name_case_diff = orig_name != act_name
-            extension_diff = orig_ext != act_ext
-            if name_case_diff or extension_diff:
-                LOGGER.warn(f"Image '{original}' found as '{actual}'")
-        return path
+        Behavior:
+        Validates that the provided paths exist and are directories.
+        Raises a TypeError if reference_folder is not a str or list.
+        Raises a ValueError if any of the provided paths do not exist or are not directories.
+        Creates an internal lookup table that maps image filenames (without the .png extension) to their absolute file paths.
 
-    def click_image(self, reference_image, timeout=dflt_timeout):
-        """Locate an image on screen and click its center once.
-
-        Parameters
-        ----------
-        reference_image : str
-            Name of the reference image to search for. The value is normalized
-            as described in `Reference image names`.
-        timeout : int, optional
-            Maximum time in seconds to wait for the image to appear. Defaults
-            to :pyattr:`dflt_timeout` (0).
-
-        Returns
-        -------
-        tuple
-            A tuple ``(x, y, score, scale)`` with the coordinates of the match,
-            optional matching score and detected scale factor.
-
-        Raises
-        ------
-        ImageNotFoundException
-            If ``reference_image`` cannot be located within ``timeout``.
         """
-        try:
-            x, y, score, scale = self.wait_for(reference_image, timeout)
-        except (ImageNotFoundException, ag.ImageNotFoundException) as e:
-            LOGGER.info(e)
-            raise
-        LOGGER.info(
-            'Clicking image "%s" in position %s' % (reference_image, (x, y))
+        self.__reference_path = (
+            []
+            if reference_folder is None
+            else self.__evaluate_reference_folder(reference_folder)
         )
-        ag.click((x, y))
-        return (x, y, score, scale)
-
-    def _click_to_the_direction_of(
-        self, direction, location, offset, clicks, button, interval
-    ):
-        """Click relative to ``location`` in ``direction`` by ``offset`` pixels.
-
-        See :py:meth:`ImageHorizonLibrary._Mouse._click_to_the_direction_of`
-        for parameter documentation.
-        """
-        raise NotImplementedError("This is defined in the main class.")
-
-    def _locate_and_click_direction(
-        self,
-        direction,
-        reference_image,
-        offset,
-        clicks,
-        button,
-        interval,
-        timeout=dflt_timeout,
-    ):
-        """Locate ``reference_image`` and click towards ``direction``.
-
-        Parameters are the same as in :py:meth:`click_to_the_above_of_image`.
-        """
-        try:
-            x, y, score, scale = self.wait_for(reference_image, timeout)
-        except (ImageNotFoundException, ag.ImageNotFoundException) as e:
-            LOGGER.info(e)
-            raise
-        self._click_to_the_direction_of(
-            direction, (x, y), offset, clicks, button, interval
-        )
-
-    def click_to_the_above_of_image(
-        self,
-        reference_image,
-        offset,
-        clicks=1,
-        button="left",
-        interval=0.0,
-        timeout=dflt_timeout,
-    ):
-        """Click above a located reference image by a pixel offset.
-
-        Parameters
-        ----------
-        reference_image : str
-            Name of the reference image to locate.
-        offset : int
-            Distance in pixels above the image's center where the click occurs.
-        clicks : int, optional
-            Number of clicks to perform. Defaults to ``1``.
-        button : str, optional
-            Mouse button to use, e.g. ``"left"``. Defaults to ``"left"``.
-        interval : float, optional
-            Time between clicks in seconds. Defaults to ``0.0``.
-        timeout : int, optional
-            Maximum time to wait for the image in seconds. Defaults to
-            :pyattr:`dflt_timeout`.
-
-        Returns
-        -------
-        None
-        """
-        self._locate_and_click_direction(
-            "up", reference_image, offset, clicks, button, interval, timeout
-        )
-
-    def click_to_the_below_of_image(
-        self,
-        reference_image,
-        offset,
-        clicks=1,
-        button="left",
-        interval=0.0,
-        timeout=dflt_timeout,
-    ):
-        """Click below a located reference image by a pixel offset.
-
-        Parameters are documented in :py:meth:`click_to_the_above_of_image`.
-        """
-        self._locate_and_click_direction(
-            "down", reference_image, offset, clicks, button, interval, timeout
-        )
-
-    def click_to_the_left_of_image(
-        self,
-        reference_image,
-        offset,
-        clicks=1,
-        button="left",
-        interval=0.0,
-        timeout=dflt_timeout,
-    ):
-        """Click left of a located reference image by a pixel offset.
-
-        Parameters are documented in :py:meth:`click_to_the_above_of_image`.
-        """
-        self._locate_and_click_direction(
-            "left", reference_image, offset, clicks, button, interval, timeout
-        )
-
-    def click_to_the_right_of_image(
-        self,
-        reference_image,
-        offset,
-        clicks=1,
-        button="left",
-        interval=0.0,
-        timeout=dflt_timeout,
-    ):
-        """Click right of a located reference image by a pixel offset.
-
-        Parameters are documented in :py:meth:`click_to_the_above_of_image`.
-        """
-        self._locate_and_click_direction(
-            "right", reference_image, offset, clicks, button, interval, timeout
-        )
-
-    def copy_from_the_above_of(self, reference_image, offset, timeout=dflt_timeout):
-        """Copy text above a reference image.
-
-        The keyword triple-clicks above the located image and copies the
-        selection using the platform specific copy shortcut.
-
-        Parameters
-        ----------
-        reference_image : str
-            Name of the reference image to locate.
-        offset : int
-            Offset in pixels above the image where the triple-click occurs.
-        timeout : int, optional
-            Maximum time to wait for the image. Defaults to
-            :pyattr:`dflt_timeout`.
-
-        Returns
-        -------
-        str
-            The text content of the system clipboard after the copy action.
-        """
-        self._locate_and_click_direction(
-            "up",
-            reference_image,
-            offset,
-            clicks=3,
-            button="left",
-            interval=0.0,
-            timeout=timeout,
-        )
-        return self.copy()
-
-    def copy_from_the_below_of(self, reference_image, offset, timeout=dflt_timeout):
-        """Copy text below a reference image.
-
-        Parameters are documented in :py:meth:`copy_from_the_above_of`.
-        """
-        self._locate_and_click_direction(
-            "down",
-            reference_image,
-            offset,
-            clicks=3,
-            button="left",
-            interval=0.0,
-            timeout=timeout,
-        )
-        return self.copy()
-
-    def copy_from_the_left_of(self, reference_image, offset, timeout=dflt_timeout):
-        """Copy text left of a reference image.
-
-        Parameters are documented in :py:meth:`copy_from_the_above_of`.
-        """
-        self._locate_and_click_direction(
-            "left",
-            reference_image,
-            offset,
-            clicks=3,
-            button="left",
-            interval=0.0,
-            timeout=timeout,
-        )
-        return self.copy()
-
-    def copy_from_the_right_of(self, reference_image, offset, timeout=dflt_timeout):
-        """Copy text right of a reference image.
-
-        Parameters are documented in :py:meth:`copy_from_the_above_of`.
-        """
-        self._locate_and_click_direction(
-            "right",
-            reference_image,
-            offset,
-            clicks=3,
-            button="left",
-            interval=0.0,
-            timeout=timeout,
-        )
-        return self.copy()
+        self.look_up_table = self.__create_look_up_table()
 
     @contextmanager
     def _suppress_keyword_on_failure(self):
@@ -370,154 +100,176 @@ class _RecognizeImages(object):
         yield None
         self.keyword_on_failure = keyword
 
-    def _get_reference_images(self, reference_image):
-        """Resolve one or many reference image paths.
 
-        Parameters
-        ----------
-        reference_image : str
-            Name of the reference image or a directory containing images.
+    def __evaluate_reference_folder(self, reference_folder):
+        ## Check if passed value is either string or List
+        image_path_type: Type[list| str] = self.__check_required_type(reference_folder)
+        self.__check_paths(image_path_type)
+        self.__reference_path = reference_folder
+        return reference_folder if image_path_type.value is False else [reference_folder]
 
-        Returns
-        -------
-        list[str]
-            A list of absolute image paths. If ``reference_image`` is a single
-            file, the list contains only that path. If it is a directory, all
-            files within the directory are returned in alphabetical order.
+    def __check_paths(self, image_path_type: Type[list| str]):
+        if image_path_type is str:
+            if not Path(self.__reference_path).is_dir():
+                raise ValueError(self.__not_a_directory())
+        else:
+            for _, ref in enumerate(self.__reference_path):
+                if not Path(ref).is_dir():
+                    raise ValueError(self.__not_a_directory())
+        return True
 
-        Raises
-        ------
-        InvalidImageException
-            If ``reference_image`` refers to a directory containing
-            non-image files.
+    def __check_required_type(self, new_reference) -> Type[list | str]:
+        if isinstance(new_reference, list):
+            return str
+        elif isinstance(new_reference, str):
+            return list
+        else:
+            raise TypeError(
+                f"reference must either be from type 'list' or 'str' not '{type(self.__reference_path)}'"
+            )
+    
+    def __not_a_directory(self):
+        return f"'{self.__reference_path}' is not a directory!"
+
+      
+    def get_reference_folder(self) -> Union[List[str], str]:
         """
-        is_dir = False
-        try:
-            if isdir(self._normalize(reference_image)):
-                is_dir = True
-        except InvalidImageException:
-            pass
-        is_file = False
-        try:
-            if isfile(self._normalize(reference_image)):
-                is_file = True
-        except InvalidImageException:
-            pass
-        reference_image = self._normalize(reference_image)
+        Description: Returns the currently set reference folder(s).
 
-        reference_images = []
-        if is_file:
-            reference_images = [reference_image]
-        elif is_dir:
-            for f in listdir(self._normalize(reference_image)):
-                if not isfile(self._normalize(path_join(reference_image, f))):
-                    raise InvalidImageException(self._normalize(reference_image))
-                reference_images.append(path_join(reference_image, f))
-        return reference_images
+        Returns: A string or a list of strings representing the path(s) to the reference folder(s).
 
-    def _locate(self, reference_image, log_it=True):
-        """Return location and scale for ``reference_image`` on screen.
+        Example:
+            ${ref_path} =    Get Reference Folder
+            Log    Current reference path: ${ref_path}
+        :return:
+        """
+        return self.__reference_path
+    
+    
+    def set_reference_folder(self, new_reference: Union[List[str], str]) -> None:
+        """
+        Description: Replaces the current reference folder(s) with a new one. This action rebuilds the internal
+        lookup table.
+
+        Parameters:
+        new_reference: A string or a list of strings representing the new directory path(s).
+
+        Behavior:
+        Performs the same validation as the __init__ method.
+        Raises TypeError or ValueError on invalid input.
+        Example:
+            Set Reference Folder    C:\\project\\images
+            Set Reference Folder    ${CURDIR}/images_v2
+            Set Reference Folder    ${list_of_image_paths}
+        """
+        self.__check_required_type(new_reference)
+        self.__reference_path = new_reference
+        self.look_up_table = self.__create_look_up_table()
+
+    
+    def add_reference_folder(self, new_reference: Union[List[str], str]) -> None:
+        if isinstance(new_reference, list) or isinstance(new_reference, str):
+            if isinstance(self.__reference_path, str):
+                tmp = self.__reference_path.split()
+                tmp.extend(new_reference) if isinstance(
+                    new_reference, list
+                ) else tmp.append(new_reference)
+            else:
+                tmp = self.__reference_path
+                tmp.extend(new_reference) if isinstance(
+                    new_reference, list
+                ) else tmp.append(new_reference)
+            try:
+                self.__reference_path = self.__evaluate_reference_folder(tmp)
+            except ValueError:
+                raise ValueError("There are invalid PATHS in your passed argument!")
+            self.look_up_table = self.__create_look_up_table()
+        else:
+            raise TypeError(
+                f"reference must either be from type 'list' or 'str' not '{type(new_reference)}'"
+            )
+    def __create_look_up_table(self):
+        if self.__reference_path is None:
+            raise PathNotSetException
+        self.__check_required_type(self.__reference_path)
+        look_up_table = {}
+        if isinstance(self.__reference_path, list):
+            for path in self.__reference_path:
+                self._fill_look_up(look_up_table, path)
+        else: 
+            self._fill_look_up(look_up_table, self.__reference_path)
+        return look_up_table
+
+    @staticmethod
+    def _fill_look_up(look_up_table: dict, path: Path | str | List[str]):
+            current_path_files = list(Path(path).resolve(strict=True).glob("*.png"))
+            for current_path_file in current_path_files:
+                png_name = current_path_file.stem  ## TODO: Check if it does what yo hope for -->replaced .name for .stem
+                if png_name in look_up_table:
+                    current_png_path = look_up_table[png_name]
+                    LOGGER.warning(
+                        f" You are replacing the '{png_name}' in path '{current_path_file.parent}'"
+                        + ""
+                        f" with the {png_name} from path '{current_png_path}'"
+                    )
+                look_up_table[png_name] = str(current_path_file)
+
+    def wait_for(self, reference_image, timeout=10, log_it=True):
+        """Wait until an image appears on the screen.
 
         Parameters
         ----------
         reference_image : str
-            Name or path of the image to locate.
-        log_it : bool, optional
-            If ``True`` (default), log informative messages about the search
-            result.
+            Name of the reference image to locate.
+        timeout : float, optional
+            Maximum number of seconds to wait. Defaults to ``10``.
 
         Returns
         -------
         tuple
-            Tuple ``(x, y, score, scale)`` where ``(x, y)`` are coordinates of
-            the image center, ``score`` is the matching score and ``scale``
-            is the detected scaling factor or ``None`` when not available.
+            Tuple ``(x, y, score, scale)`` describing the match.
 
         Raises
         ------
         ImageNotFoundException
-            If the image cannot be located.
+            If the image is not found within the timeout.
         """
-        reference_images = self._get_reference_images(reference_image)
-
+        stop_time = time() + float(timeout)
         location = None
-        score = None
-        scale = 1.0
-        best_score = None
-        for ref_image in reference_images:
-            try:
-                result = self._try_locate(ref_image)
-            except Exception as e:  # pragma: no cover - unexpected failures
-                LOGGER.error(
-                    f'Unexpected error locating "{ref_image}": {e}\n{traceback.format_exc()}'
-                )
-                raise
-
-            if isinstance(result, tuple) and len(result) == 3:
-                loc, scr, scl = result
-            elif isinstance(result, np.ndarray) and result.shape == (3,):
-                loc, scr, scl = result[0], result[1], result[2]
-            else:
-                loc, scr, scl = result, None, 1.0
-
-            if loc is not None:
-                if isinstance(loc, np.ndarray):
-                    loc = tuple(np.asarray(loc).flatten().tolist())
-                if isinstance(scr, np.ndarray):
-                    scr = float(np.asarray(scr).flat[0])
-                if isinstance(scl, np.ndarray):
-                    scl = float(np.asarray(scl).flat[0])
-                location, score, scale = loc, scr, scl
-                break
-            else:
-                if scr is not None and (
-                    best_score is None or scr > best_score
+        #last_exc = None
+        with self._suppress_keyword_on_failure():
+            while True:
+                try:
+                    location = self._check_and_locate(reference_image,timeout=0, log_it=True)
+                    break
+                except (
+                    #InvalidImageException, # Replace with ImageNotInPathException
+                    #ReferenceFolderException,  is covered ealier 
+                    #StrategyException,  # why here
+                    #ScreenshotFolderException, # why here?
                 ):
-                    best_score = scr
-
+                    # These indicate a permanent misconfiguration and should not
+                    # be retried within this loop.
+                    raise
+                except ImageNotFoundException as e:  # other exceptions should raise 
+                    last_exc = e
+                    if time() > stop_time:
+                        break
+                    sleep(0.1)
         if location is None:
-            confidence = getattr(self, "confidence", None)
-            matches = 0
-            if log_it:
-                LOGGER.info(
-                    'Image "%s" was not found on screen. '
-                    "(strategy: %s, matches: %d, best score %.3f, confidence %.3f)"
-                    % (
-                        reference_image,
-                        self.strategy,
-                        matches,
-                        best_score if best_score is not None else float('nan'),
-                        confidence if confidence is not None else float('nan'),
-                    )
-                )
-            self._run_on_failure()
-            raise ImageNotFoundException(
+            self._raise_image_not_found_error(reference_image, log_it, None)  # need to think about that
+        x, y, score, scale = location
+        LOGGER.info(
+            'Image "%s" found at %r (score %.3f, scale %.2f)'
+            % (
                 reference_image,
-                best_score=best_score,
-                confidence=confidence,
+                (x, y),
+                score if score is not None else float('nan'),
+                scale,
             )
-
-        center_point = ag.center(location)
-        x = center_point.x
-        y = center_point.y
-        if self.pixel_ratio == 0.0:
-            self.__get_pixel_ratio()
-        if self.pixel_ratio > 1:
-            x = x / self.pixel_ratio
-            y = y / self.pixel_ratio
-        if log_it:
-            LOGGER.info(
-                'Image "%s" found at %r (score %.3f, scale %.2f, strategy: %s)'
-                % (
-                    reference_image,
-                    (x, y),
-                    score if score is not None else float('nan'),
-                    scale,
-                    self.strategy,
-                )
-            )
-        return (x, y, score, scale)
-
+        )
+        return location
+    
     def _locate_all(self, reference_image, haystack_image=None):
         """Locate all occurrences of a reference image.
 
@@ -570,31 +322,6 @@ class _RecognizeImages(object):
                 return True
             except (ImageNotFoundException, ag.ImageNotFoundException):
                 return False
-
-    def locate(self, reference_image):
-        """Locate image on screen.
-
-        Parameters
-        ----------
-        reference_image : str
-            Name or path of the image to locate.
-
-        Returns
-        -------
-        tuple
-            Tuple ``(x, y, score, scale)`` describing the match.
-
-        Raises
-        ------
-        ImageNotFoundException
-            If the image is not found on screen.
-        """
-        try:
-            return self._locate(reference_image)
-        except (ImageNotFoundException, ag.ImageNotFoundException) as e:
-            LOGGER.info(e)
-            raise
-
     def locate_all(self, reference_image):
         """Locate all occurrences of an image on screen.
 
@@ -626,67 +353,188 @@ class _RecognizeImages(object):
             matches.append((x, y, score, scale))
         return matches
 
-    def wait_for(self, reference_image, timeout=10):
-        """Wait until an image appears on the screen.
+    def _check_path_set(self) -> None:
+        if self.get_reference_folder() is None:
+            raise PathNotSetException
 
-        Parameters
-        ----------
-        reference_image : str
-            Name of the reference image to locate.
-        timeout : float, optional
-            Maximum number of seconds to wait. Defaults to ``10``.
+    
+    def click_image(self, reference_image, timeout=DFLT_TIMEOUT):
+        location =  self.wait_for(reference_image, timeout=timeout)
+        #location = self._check_and_locate(image_name, timeout=timeout)
+        ag.click(location)
 
-        Returns
-        -------
-        tuple
-            Tuple ``(x, y, score, scale)`` describing the match.
-
-        Raises
-        ------
-        ImageNotFoundException
-            If the image is not found within the timeout.
-        """
-        stop_time = time() + float(timeout)
-        location = None
-        last_exc = None
-        with self._suppress_keyword_on_failure():
-            while True:
-                try:
-                    location = self._locate(reference_image, log_it=True)
-                    break
-                except (
-                    InvalidImageException,
-                    ReferenceFolderException,
-                    StrategyException,
-                    ScreenshotFolderException,
-                ):
-                    # These indicate a permanent misconfiguration and should not
-                    # be retried within this loop.
-                    raise
-                except Exception as e:  # pragma: no cover - defensive catch
-                    last_exc = e
-                    if time() > stop_time:
-                        break
-                    sleep(0.1)
-        if location is None:
-            self._run_on_failure()
-            if last_exc is not None:
-                # Propagate original error after waiting for the timeout. If the
-                # error was not our ``ImageNotFoundException`` it represents an
-                # unexpected failure and is raised as-is.
-                raise last_exc
-            raise ImageNotFoundException(self._normalize(reference_image))
-        x, y, score, scale = location
-        LOGGER.info(
-            'Image "%s" found at %r (score %.3f, scale %.2f)'
-            % (
-                reference_image,
-                (x, y),
-                score if score is not None else float('nan'),
-                scale,
-            )
-        )
+    
+    def locate_image(self, reference_image, timeout=DFLT_TIMEOUT, log_it=True):
+        location =  self.wait_for(reference_image, timeout=timeout)
         return location
+        #return self._check_and_locate(reference_image, timeout=timeout)
+    
+    def __count_track_mode_screenshots(self, track_mode_path: Path):
+        count = 0
+        for file in track_mode_path.iterdir():
+            if match(r"track_mode-(\d+)\.png",file.name):
+                count +=1
+        return count
+
+    def _locate_image(self, reference_image, timeout=0, grayscale=None, region=None, log_it=True):
+        pic=None
+        path = None
+        best_score = None
+        if self.track_mode:
+            track_mode_path =Path(str(self.screenshot_folder)) if self.screenshot_folder  else Path.cwd()
+            count = self.__count_track_mode_screenshots(track_mode_path)
+            path = track_mode_path / f"track_mode-{count}.png"
+            print(f"Path: {path}")
+            pic = ag.screenshot()
+            pic.save(path)
+        ## TODO: This requires a rework
+        result  = self._try_locate(reference_image)  # Has to work, does to much
+        if isinstance(result, tuple) and len(result) == 3:
+                loc, scr, scl = result
+        elif isinstance(result, np.ndarray) and result.shape == (3,):
+                loc, scr, scl = result[0], result[1], result[2]
+        else:
+                loc, scr, scl = result, None, 1.0
+
+        if loc is not None:
+            if isinstance(loc, np.ndarray):
+                loc = tuple(np.asarray(loc).flatten().tolist())
+            if isinstance(scr, np.ndarray):
+                scr = float(np.asarray(scr).flat[0])
+            if isinstance(scl, np.ndarray):
+                scl = float(np.asarray(scl).flat[0])
+            location, score, scale = loc, scr, scl
+            #break
+        else:
+            if scr is not None and (
+                best_score is None or scr > best_score
+            ):
+                best_score = scr
+        ## Rework till here 
+        try:
+            image_location = ag.locateCenterOnScreen(
+                self.look_up_table[reference_image.replace(".png", "")],
+                grayscale=grayscale,
+                region=region,
+                confidence=self.confidence,
+            )
+
+        except KeyError:
+            raise ImageNotInPath(reference_image, self.get_reference_folder())
+        except ImageNotFoundException:
+            self.__raise_image_not_found_error(reference_image, log_it, best_score)
+            #raise ImageNotFoundException(
+            #    f"Image '{reference_image}' was not found on screen!"
+            #)
+
+
+        center_point = image_location  # instead of ag.center(location)
+        x = center_point.x
+        y = center_point.y
+        if self.pixel_ratio == 0.0:
+            self.__get_pixel_ratio()
+        if self.pixel_ratio > 1:
+            x = x / self.pixel_ratio
+            y = y / self.pixel_ratio
+        if log_it:
+            LOGGER.info(
+                'Image "%s" found at %r (score %.3f, scale %.2f, strategy: %s)'
+                % (
+                    reference_image,
+                    (x, y),
+                    score if score is not None else float('nan'),
+                    scale,
+                    self.strategy,
+                )
+            )
+        if pic:
+            template_image_path = self.look_up_table[reference_image.replace(".png", "")]
+            self.mark_image_location(path,template_image_path , path)
+        return (x, y, score, scale)
+
+
+    
+    def click(self, button: str = "left"):
+        ag.click(button=button)
+
+    
+    def click_to_the_left_of_image(
+        self, reference_image, offset, clicks, button="left", interval=0.0
+    ):
+        location = self._check_and_locate(reference_image)
+        new_location = self._change_coordinates_of_location(location, x=-abs(int(offset)))
+        ag.click(new_location, clicks=int(clicks), button=button, interval=interval)
+
+    
+    def click_to_the_right_of_image(
+        self, reference_image, offset, clicks, button="left", interval=0.0
+    ):
+        location = self._check_and_locate(reference_image)
+        new_location = self._change_coordinates_of_location(location, x=abs(int(offset)))
+        ag.click(new_location, clicks=int(clicks), button=button, interval=interval)
+
+    
+    def click_to_the_above_of_image(
+        self, reference_image, offset, clicks, button="left", interval=0.0
+    ):
+        location = self._check_and_locate(reference_image)
+        new_location = self._change_coordinates_of_location(location, y=-abs(int(offset)))
+        ag.click(new_location, clicks=int(clicks), button=button, interval=interval)
+
+    
+    def click_to_the_below_of_image(
+        self, reference_image, offset, clicks, button="left", interval=0.0
+    ):
+        location = self._check_and_locate(reference_image)
+        new_location = self._change_coordinates_of_location(location, y=abs(int(offset)))
+        ag.click(new_location, clicks=int(clicks), button=button, interval=interval)
+
+    def _check_and_locate(self, reference_image, timeout=0, log_it=True):
+        self._check_path_set()
+        return self._locate_image(reference_image, timeout=timeout, log_it=log_it)
+
+    def __get_pixel_ratio(self):
+        """Calculate display pixel ratio once and cache it."""
+        try:
+            ratio = ag.screenshot().size[0] / ag.size().width
+            self.pixel_ratio = float(ratio)
+        except Exception:
+            self.pixel_ratio = 1.0
+
+    def _run_on_failure(self):
+        if not self.keyword_on_failure:
+            return
+        try:
+            BuiltIn().run_keyword(self.keyword_on_failure)
+        except Exception as e:
+            LOGGER.debug(e)
+            LOGGER.warning("Failed to take a screenshot. " "Is Robot Framework running?")
+
+    def _raise_image_not_found_error(self, reference_image, log_it, best_score):
+        confidence = getattr(self, "confidence", None)
+        matches = 0
+        if log_it:
+            LOGGER.info(
+                'Image "%s" was not found on screen. '
+                "(strategy: %s, matches: %d, best score %.3f, confidence %.3f)"
+                % (
+                    reference_image,
+                    self.strategy,
+                    matches,
+                    best_score if best_score is not None else float('nan'),
+                    confidence if confidence is not None else float('nan'),
+                )
+            )
+        self._run_on_failure()
+        raise ImageNotFoundException(
+            reference_image,
+            best_score=best_score,
+            confidence=confidence,
+        )
+
+    
+
+
 
     def debug_image(self, reference_folder=None, minimize=False, dialog_default_dir=None):
         """Halts the test execution and opens the image debugger UI.
@@ -855,7 +703,7 @@ class _StrategyPyautogui:
                     )
                 else:
                     if ih.confidence:
-                        LOGGER.warn(
+                        LOGGER.warning(
                             "Can't set confidence because you don't "
                             "have OpenCV (python3-opencv) installed "
                             "or a confidence level was not given."
@@ -908,6 +756,7 @@ class _StrategyPyautogui:
             except Exception:
                 score = None
         return (location, score, 1.0)
+    
 class _StrategyCv2:
     """Image matching strategy using OpenCV edge detection."""
 

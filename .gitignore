@@ -58,3 +58,4 @@ log.html
 
 # IDE and editor files
 *.swp
+.history/

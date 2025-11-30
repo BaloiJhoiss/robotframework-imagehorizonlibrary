@@ -46,7 +46,7 @@ __version__ = VERSION
 
 
 class ImageHorizonLibrary(
-    _Keyboard, _Mouse, _OperatingSystem, _RecognizeImages, _Screenshot
+    _Keyboard, _Mouse, _OperatingSystem, _Screenshot
 ):
     """A cross-platform Robot Framework library for GUI automation.
 
