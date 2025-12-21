@@ -71,7 +71,7 @@ class TestMainClass(TestCase):
             import_module('ImageHorizonLibrary')
 
     def test_set_reference_folder(self):
-        self.assertEqual(self.lib.reference_folder, None)
+        self.assertEqual(self.lib.reference_folder, []) # TODO: Or set back to none
         self.lib.set_reference_folder('/test/path')
         self.assertEqual(self.lib.reference_folder, '/test/path')
 

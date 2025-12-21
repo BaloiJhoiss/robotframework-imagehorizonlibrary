@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 from collections import OrderedDict
 from contextlib import contextmanager
+from pathlib import Path
+from typing import Type, List
 import inspect
 
 from .errors import *  # import errors before checking dependencies!
@@ -46,7 +48,7 @@ __version__ = VERSION
 
 
 class ImageHorizonLibrary(
-    _Keyboard, _Mouse, _OperatingSystem, _Screenshot
+    _Keyboard, _Mouse, _OperatingSystem,_RecognizeImages, _Screenshot
 ):
     """A cross-platform Robot Framework library for GUI automation.
 
@@ -220,6 +222,7 @@ class ImageHorizonLibrary(
         edge_kernel_size=3,
         validate_match=False,
         validation_margin=5,
+        track_mode = False,
     ):
         """ImageHorizonLibrary can be imported with several options.
 
@@ -261,7 +264,12 @@ class ImageHorizonLibrary(
         """
 
         # _RecognizeImages.set_strategy(self, strategy)
-        self.reference_folder = reference_folder
+        #self.reference_folder = reference_folder
+        self.reference_folder = (
+            []
+            if reference_folder is None
+            else self.__evaluate_reference_folder(reference_folder)
+        )
         self.screenshot_folder = screenshot_folder
         self.keyword_on_failure = keyword_on_failure
         self.open_applications = OrderedDict()
@@ -307,6 +315,67 @@ class ImageHorizonLibrary(
         self.scale_min = 0.8
         self.scale_max = 1.2
         self.scale_steps = 9
+        #super.__init__(reference_folder)
+
+
+        self.look_up_table = self.__create_look_up_table()
+        self.track_mode = track_mode
+
+    def __create_look_up_table(self):
+        if self.reference_folder is None:
+            raise PathNotSetException
+        self.__check_required_type(self.reference_folder)
+        look_up_table = {}
+        if isinstance(self.reference_folder, list):
+            for path in self.reference_folder:
+                self._fill_look_up(look_up_table, path)
+        else:
+            self._fill_look_up(look_up_table, self.reference_folder)
+        return look_up_table
+
+    def __evaluate_reference_folder(self, reference_folder):
+        ## Check if passed value is either string or List
+        image_path_type: Type[list| str] = self.__check_required_type(reference_folder)
+        self.__check_paths(image_path_type, reference_folder)
+        self.reference_folder = reference_folder if image_path_type is list else [reference_folder]
+        return self.reference_folder
+
+    @staticmethod
+    def _fill_look_up(look_up_table: dict, path: Path | str | List[str]):
+        current_path_files = list(Path(path).resolve(strict=True).glob("*.png"))
+        for current_path_file in current_path_files:
+            png_name = current_path_file.stem  ## TODO: Check if it does what yo hope for -->replaced .name for .stem
+            if png_name in look_up_table:
+                current_png_path = look_up_table[png_name]
+                LOGGER.warning(
+                    f" You are replacing the '{png_name}' in path '{current_path_file.parent}'"
+                    + ""
+                      f" with the {png_name} from path '{current_png_path}'"
+                )
+            look_up_table[png_name] = str(current_path_file)
+
+    def __check_paths(self, image_path_type: Type[list | str], reference_folder: Path):
+        if image_path_type is str:
+            if not Path(reference_folder).is_dir():
+                raise ValueError(self.__not_a_directory(reference_folder))
+        else:
+            for _, ref in enumerate(reference_folder):
+                if not Path(ref).is_dir():
+                    raise ValueError(self.__not_a_directory(reference_folder))
+        return True
+
+    def __check_required_type(self, new_reference) -> Type[list | str]:
+        if isinstance(new_reference, list):
+            return list
+        elif isinstance(new_reference, str):
+            return str
+        else:
+            raise TypeError(
+                f"reference must either be from type 'list' or 'str' not '{type(new_reference)}'"
+            )
+
+    def __not_a_directory(self, reference_folder):
+        return f"'{reference_folder}' is not a directory!"
 
     def set_strategy(
         self,

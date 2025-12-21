@@ -34,8 +34,35 @@ class TestLocateKeywordStrategies(TestCase):
             sys.modules.pop('ImageHorizonLibrary', None)
             return importlib.import_module('ImageHorizonLibrary')
 
+    def _mock_pyautogui(self):
+        mock_pyautogui = MagicMock()
+
+        # We create a fake 'Point' object that has .x and .y attributes
+        mock_point = MagicMock()
+        mock_point.x = self.expected_x  # e.g., 252.0
+        mock_point.y = self.expected_y  # e.g., 100.0
+
+        # Configure the mock to return our fake point
+        mock_pyautogui.locateCenterOnScreen.return_value = mock_point
+
+        # If the library uses locateOnScreen (which returns a 4-tuple: left, top, width, height)
+        mock_pyautogui.locateOnScreen.return_value = (self.expected_x, self.expected_y, 10, 10)
+
+        return mock_pyautogui
+
+    # def test_locate_returns_values_with_default_strategy(self):
+    #     lib_module = self._import_library(self._mock_pyautogui())
+    #     lib = lib_module.ImageHorizonLibrary(reference_folder=TESTIMG_DIR)
+    #     x, y, score, scale = lib.locate('my_picture.png')
+    #     self.assertAlmostEqual(x, self.expected_x)
+    #     self.assertAlmostEqual(y, self.expected_y)
+    #     self.assertIsInstance(score, (float, type(None)))
+    #     self.assertEqual(scale, 1.0)
+
     def test_locate_returns_values_with_default_strategy(self):
-        lib_module = self._import_library(self._mock_pyautogui())
+        # This now gets a 'smart' mock that already knows its coordinates
+        mock_py = self._mock_pyautogui()
+        lib_module = self._import_library(mock_py)
         lib = lib_module.ImageHorizonLibrary(reference_folder=TESTIMG_DIR)
         x, y, score, scale = lib.locate('my_picture.png')
         self.assertAlmostEqual(x, self.expected_x)

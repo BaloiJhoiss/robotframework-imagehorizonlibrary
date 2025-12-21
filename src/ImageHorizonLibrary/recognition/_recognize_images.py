@@ -72,25 +72,25 @@ class _RecognizeImages(object):
     PIXEL_RATIO =0.0
 
  
-    def __init__(self, reference_folder: List[str]| str):
-        """
-        Parameters:
-        reference_folder: A string representing a single directory path or a list of strings, where each string is a
-        path to a directory.
-
-        Behavior:
-        Validates that the provided paths exist and are directories.
-        Raises a TypeError if reference_folder is not a str or list.
-        Raises a ValueError if any of the provided paths do not exist or are not directories.
-        Creates an internal lookup table that maps image filenames (without the .png extension) to their absolute file paths.
-
-        """
-        self.__reference_path = (
-            []
-            if reference_folder is None
-            else self.__evaluate_reference_folder(reference_folder)
-        )
-        self.look_up_table = self.__create_look_up_table()
+    # def __init__(self, reference_folder: List[str]| str):
+    #     """
+    #     Parameters:
+    #     reference_folder: A string representing a single directory path or a list of strings, where each string is a
+    #     path to a directory.
+    #
+    #     Behavior:
+    #     Validates that the provided paths exist and are directories.
+    #     Raises a TypeError if reference_folder is not a str or list.
+    #     Raises a ValueError if any of the provided paths do not exist or are not directories.
+    #     Creates an internal lookup table that maps image filenames (without the .png extension) to their absolute file paths.
+    #
+    #     """
+    #     self._reference_folder = (
+    #         []
+    #         if reference_folder is None
+    #         else self.__evaluate_reference_folder(reference_folder)
+    #     )
+    #     self.look_up_table = self.__create_look_up_table()
 
     @contextmanager
     def _suppress_keyword_on_failure(self):
@@ -105,15 +105,15 @@ class _RecognizeImages(object):
         ## Check if passed value is either string or List
         image_path_type: Type[list| str] = self.__check_required_type(reference_folder)
         self.__check_paths(image_path_type)
-        self.__reference_path = reference_folder
+        self.reference_folder = reference_folder
         return reference_folder if image_path_type.value is False else [reference_folder]
 
     def __check_paths(self, image_path_type: Type[list| str]):
         if image_path_type is str:
-            if not Path(self.__reference_path).is_dir():
+            if not Path(self.reference_folder).is_dir():
                 raise ValueError(self.__not_a_directory())
         else:
-            for _, ref in enumerate(self.__reference_path):
+            for _, ref in enumerate(self.reference_folder):
                 if not Path(ref).is_dir():
                     raise ValueError(self.__not_a_directory())
         return True
@@ -125,11 +125,11 @@ class _RecognizeImages(object):
             return list
         else:
             raise TypeError(
-                f"reference must either be from type 'list' or 'str' not '{type(self.__reference_path)}'"
+                f"reference must either be from type 'list' or 'str' not '{type(self.reference_folder)}'"
             )
     
     def __not_a_directory(self):
-        return f"'{self.__reference_path}' is not a directory!"
+        return f"'{self.reference_folder}' is not a directory!"
 
       
     def get_reference_folder(self) -> Union[List[str], str]:
@@ -143,7 +143,7 @@ class _RecognizeImages(object):
             Log    Current reference path: ${ref_path}
         :return:
         """
-        return self.__reference_path
+        return self.reference_folder
     
     
     def set_reference_folder(self, new_reference: Union[List[str], str]) -> None:
@@ -163,24 +163,24 @@ class _RecognizeImages(object):
             Set Reference Folder    ${list_of_image_paths}
         """
         self.__check_required_type(new_reference)
-        self.__reference_path = new_reference
+        self.reference_folder = new_reference
         self.look_up_table = self.__create_look_up_table()
 
     
     def add_reference_folder(self, new_reference: Union[List[str], str]) -> None:
         if isinstance(new_reference, list) or isinstance(new_reference, str):
-            if isinstance(self.__reference_path, str):
-                tmp = self.__reference_path.split()
+            if isinstance(self.reference_folder, str):
+                tmp = self.reference_folder.split()
                 tmp.extend(new_reference) if isinstance(
                     new_reference, list
                 ) else tmp.append(new_reference)
             else:
-                tmp = self.__reference_path
+                tmp = self.reference_folder
                 tmp.extend(new_reference) if isinstance(
                     new_reference, list
                 ) else tmp.append(new_reference)
             try:
-                self.__reference_path = self.__evaluate_reference_folder(tmp)
+                self.reference_folder = self.__evaluate_reference_folder(tmp)
             except ValueError:
                 raise ValueError("There are invalid PATHS in your passed argument!")
             self.look_up_table = self.__create_look_up_table()
@@ -189,15 +189,15 @@ class _RecognizeImages(object):
                 f"reference must either be from type 'list' or 'str' not '{type(new_reference)}'"
             )
     def __create_look_up_table(self):
-        if self.__reference_path is None:
+        if self.reference_folder is None:
             raise PathNotSetException
-        self.__check_required_type(self.__reference_path)
+        self.__check_required_type(self.reference_folder)
         look_up_table = {}
-        if isinstance(self.__reference_path, list):
-            for path in self.__reference_path:
+        if isinstance(self.reference_folder, list):
+            for path in self.reference_folder:
                 self._fill_look_up(look_up_table, path)
         else: 
-            self._fill_look_up(look_up_table, self.__reference_path)
+            self._fill_look_up(look_up_table, self.reference_folder)
         return look_up_table
 
     @staticmethod
@@ -342,14 +342,14 @@ class _RecognizeImages(object):
         """
         matches = []
         locations = self._locate_all(reference_image)
-        if self.pixel_ratio == 0.0:
+        if self.PIXEL_RATIO == 0.0:
             self.__get_pixel_ratio()
         for loc, score, scale in locations:
             center = ag.center(loc)
             x, y = center.x, center.y
-            if self.pixel_ratio > 1:
-                x = x / self.pixel_ratio
-                y = y / self.pixel_ratio
+            if self.PIXEL_RATIO > 1:
+                x = x / self.PIXEL_RATIO
+                y = y / self.PIXEL_RATIO
             matches.append((x, y, score, scale))
         return matches
 
@@ -364,7 +364,7 @@ class _RecognizeImages(object):
         ag.click(location)
 
     
-    def locate_image(self, reference_image, timeout=DFLT_TIMEOUT, log_it=True):
+    def locate(self, reference_image, timeout=DFLT_TIMEOUT, log_it=True):
         location =  self.wait_for(reference_image, timeout=timeout)
         return location
         #return self._check_and_locate(reference_image, timeout=timeout)
@@ -431,11 +431,11 @@ class _RecognizeImages(object):
         center_point = image_location  # instead of ag.center(location)
         x = center_point.x
         y = center_point.y
-        if self.pixel_ratio == 0.0:
+        if self.PIXEL_RATIO == 0.0:
             self.__get_pixel_ratio()
-        if self.pixel_ratio > 1:
-            x = x / self.pixel_ratio
-            y = y / self.pixel_ratio
+        if self.PIXEL_RATIO > 1:
+            x = x / self.PIXEL_RATIO
+            y = y / self.PIXEL_RATIO
         if log_it:
             LOGGER.info(
                 'Image "%s" found at %r (score %.3f, scale %.2f, strategy: %s)'
@@ -497,9 +497,9 @@ class _RecognizeImages(object):
         """Calculate display pixel ratio once and cache it."""
         try:
             ratio = ag.screenshot().size[0] / ag.size().width
-            self.pixel_ratio = float(ratio)
+            self.PIXEL_RATIO = float(ratio)
         except Exception:
-            self.pixel_ratio = 1.0
+            self.PIXEL_RATIO = 1.0
 
     def _run_on_failure(self):
         if not self.keyword_on_failure:

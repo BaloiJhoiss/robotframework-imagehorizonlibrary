@@ -150,7 +150,7 @@ class TestRecognizeImages(TestCase):
     def test_locate_handles_array_from_strategy(self):
         loc = np.array([0, 0, 10, 10])
         self.mock.center.return_value = MagicMock(x=5, y=5)
-        self.lib.pixel_ratio = 1.0
+        self.lib.PIXEL_RATIO = 1.0
         with patch.object(self.lib, '_try_locate', return_value=loc):
             x, y, score, scale = self.lib._locate('my_picture')
         self.assertEqual((x, y, score, scale), (5, 5, None, 1.0))
@@ -158,7 +158,7 @@ class TestRecognizeImages(TestCase):
     def test_locate_handles_2d_array_from_strategy(self):
         loc = np.array([[0, 0, 10, 10]])
         self.mock.center.return_value = MagicMock(x=5, y=5)
-        self.lib.pixel_ratio = 1.0
+        self.lib.PIXEL_RATIO = 1.0
         with patch.object(self.lib, '_try_locate', return_value=loc):
             x, y, score, scale = self.lib._locate('my_picture')
         self.assertEqual((x, y, score, scale), (5, 5, None, 1.0))
@@ -166,7 +166,7 @@ class TestRecognizeImages(TestCase):
     def test_locate_handles_numpy_triplet(self):
         result = np.array([(0, 0, 10, 10), 0.8, 1.0], dtype=object)
         self.mock.center.return_value = MagicMock(x=5, y=5)
-        self.lib.pixel_ratio = 1.0
+        self.lib.PIXEL_RATIO = 1.0
         with patch.object(self.lib, '_try_locate', return_value=result):
             x, y, score, scale = self.lib._locate('my_picture')
         self.assertEqual((x, y, score, scale), (5, 5, 0.8, 1.0))
@@ -180,7 +180,7 @@ class TestRecognizeImages(TestCase):
 
     def test_locate_all(self):
         locations = [((0, 0, 10, 10), 0.8, 1.0), ((10, 10, 10, 10), 0.9, 1.0)]
-        self.lib.pixel_ratio = 1.0
+        self.lib.PIXEL_RATIO = 1.0
         self.mock.center.side_effect = [MagicMock(x=5, y=5), MagicMock(x=15, y=15)]
         with patch(self._locate_all, return_value=locations):
             result = self.lib.locate_all('my_picture')
