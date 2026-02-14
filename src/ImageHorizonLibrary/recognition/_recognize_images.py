@@ -56,9 +56,9 @@ from ..errors import (
     PathNotSetException
 )
 
-class ImagePathTypeEnum(Enum):
-    STR_TYPE = True
-    LIST_TYPE = False
+# class ImagePathTypeEnum(Enum):
+#     STR_TYPE = True
+#     LIST_TYPE = False
 
 
 class _RecognizeImages(object):
@@ -101,35 +101,35 @@ class _RecognizeImages(object):
         self.keyword_on_failure = keyword
 
 
-    def __evaluate_reference_folder(self, reference_folder):
-        ## Check if passed value is either string or List
-        image_path_type: Type[list| str] = self.__check_required_type(reference_folder)
-        self.__check_paths(image_path_type)
-        self.reference_folder = reference_folder
-        return reference_folder if image_path_type.value is False else [reference_folder]
+    # def __evaluate_reference_folder(self, reference_folder):
+    #     ## Check if passed value is either string or List
+    #     image_path_type: Type[list| str] = self.__check_required_type(reference_folder)
+    #     self.__check_paths(image_path_type)
+    #     self.reference_folder = reference_folder
+    #     return reference_folder if image_path_type.value is False else [reference_folder]
 
-    def __check_paths(self, image_path_type: Type[list| str]):
-        if image_path_type is str:
-            if not Path(self.reference_folder).is_dir():
-                raise ValueError(self.__not_a_directory())
-        else:
-            for _, ref in enumerate(self.reference_folder):
-                if not Path(ref).is_dir():
-                    raise ValueError(self.__not_a_directory())
-        return True
+    # def __check_paths(self, image_path_type: Type[list| str]):
+    #     if image_path_type is str:
+    #         if not Path(self.reference_folder).is_dir():
+    #             raise ValueError(self.__not_a_directory())
+    #     else:
+    #         for _, ref in enumerate(self.reference_folder):
+    #             if not Path(ref).is_dir():
+    #                 raise ValueError(self.__not_a_directory())
+    #     return True
 
-    def __check_required_type(self, new_reference) -> Type[list | str]:
-        if isinstance(new_reference, list):
-            return str
-        elif isinstance(new_reference, str):
-            return list
-        else:
-            raise TypeError(
-                f"reference must either be from type 'list' or 'str' not '{type(self.reference_folder)}'"
-            )
-    
-    def __not_a_directory(self):
-        return f"'{self.reference_folder}' is not a directory!"
+    # def __check_required_type(self, new_reference) -> Type[list | str]:
+    #     if isinstance(new_reference, list):
+    #         return list
+    #     elif isinstance(new_reference, str):
+    #         return str
+    #     else:
+    #         raise TypeError(
+    #             f"reference must either be from type 'list' or 'str' not '{type(self.reference_folder)}'"
+    #         )
+    #
+    # def __not_a_directory(self):
+    #     return f"'{self.reference_folder}' is not a directory!"
 
       
     def get_reference_folder(self) -> Union[List[str], str]:
@@ -146,229 +146,112 @@ class _RecognizeImages(object):
         return self.reference_folder
     
     
-    def set_reference_folder(self, new_reference: Union[List[str], str]) -> None:
-        """
-        Description: Replaces the current reference folder(s) with a new one. This action rebuilds the internal
-        lookup table.
-
-        Parameters:
-        new_reference: A string or a list of strings representing the new directory path(s).
-
-        Behavior:
-        Performs the same validation as the __init__ method.
-        Raises TypeError or ValueError on invalid input.
-        Example:
-            Set Reference Folder    C:\\project\\images
-            Set Reference Folder    ${CURDIR}/images_v2
-            Set Reference Folder    ${list_of_image_paths}
-        """
-        self.__check_required_type(new_reference)
-        self.reference_folder = new_reference
-        self.look_up_table = self.__create_look_up_table()
-
-    
-    def add_reference_folder(self, new_reference: Union[List[str], str]) -> None:
-        if isinstance(new_reference, list) or isinstance(new_reference, str):
-            if isinstance(self.reference_folder, str):
-                tmp = self.reference_folder.split()
-                tmp.extend(new_reference) if isinstance(
-                    new_reference, list
-                ) else tmp.append(new_reference)
-            else:
-                tmp = self.reference_folder
-                tmp.extend(new_reference) if isinstance(
-                    new_reference, list
-                ) else tmp.append(new_reference)
-            try:
-                self.reference_folder = self.__evaluate_reference_folder(tmp)
-            except ValueError:
-                raise ValueError("There are invalid PATHS in your passed argument!")
-            self.look_up_table = self.__create_look_up_table()
-        else:
-            raise TypeError(
-                f"reference must either be from type 'list' or 'str' not '{type(new_reference)}'"
-            )
-    def __create_look_up_table(self):
-        if self.reference_folder is None:
-            raise PathNotSetException
-        self.__check_required_type(self.reference_folder)
-        look_up_table = {}
-        if isinstance(self.reference_folder, list):
-            for path in self.reference_folder:
-                self._fill_look_up(look_up_table, path)
-        else: 
-            self._fill_look_up(look_up_table, self.reference_folder)
-        return look_up_table
-
-    @staticmethod
-    def _fill_look_up(look_up_table: dict, path: Path | str | List[str]):
-            current_path_files = list(Path(path).resolve(strict=True).glob("*.png"))
-            for current_path_file in current_path_files:
-                png_name = current_path_file.stem  ## TODO: Check if it does what yo hope for -->replaced .name for .stem
-                if png_name in look_up_table:
-                    current_png_path = look_up_table[png_name]
-                    LOGGER.warning(
-                        f" You are replacing the '{png_name}' in path '{current_path_file.parent}'"
-                        + ""
-                        f" with the {png_name} from path '{current_png_path}'"
-                    )
-                look_up_table[png_name] = str(current_path_file)
-
-    def wait_for(self, reference_image, timeout=10, log_it=True):
-        """Wait until an image appears on the screen.
-
-        Parameters
-        ----------
-        reference_image : str
-            Name of the reference image to locate.
-        timeout : float, optional
-            Maximum number of seconds to wait. Defaults to ``10``.
-
-        Returns
-        -------
-        tuple
-            Tuple ``(x, y, score, scale)`` describing the match.
-
-        Raises
-        ------
-        ImageNotFoundException
-            If the image is not found within the timeout.
-        """
-        stop_time = time() + float(timeout)
-        location = None
-        #last_exc = None
-        with self._suppress_keyword_on_failure():
-            while True:
-                try:
-                    location = self._check_and_locate(reference_image,timeout=0, log_it=True)
-                    break
-                except (
-                    #InvalidImageException, # Replace with ImageNotInPathException
-                    #ReferenceFolderException,  is covered ealier 
-                    #StrategyException,  # why here
-                    #ScreenshotFolderException, # why here?
-                ):
-                    # These indicate a permanent misconfiguration and should not
-                    # be retried within this loop.
-                    raise
-                except ImageNotFoundException as e:  # other exceptions should raise 
-                    last_exc = e
-                    if time() > stop_time:
-                        break
-                    sleep(0.1)
-        if location is None:
-            self._raise_image_not_found_error(reference_image, log_it, None)  # need to think about that
-        x, y, score, scale = location
-        LOGGER.info(
-            'Image "%s" found at %r (score %.3f, scale %.2f)'
-            % (
-                reference_image,
-                (x, y),
-                score if score is not None else float('nan'),
-                scale,
-            )
-        )
-        return location
-    
-    def _locate_all(self, reference_image, haystack_image=None):
-        """Locate all occurrences of a reference image.
-
-        Parameters
-        ----------
-        reference_image : str
-            Name or path of the image to search for.
-        haystack_image : array-like, optional
-            Pre-captured screenshot to search in. If ``None``, a new screenshot
-            of the screen is taken.
-
-        Returns
-        -------
-        list[tuple]
-            A list of tuples ``(location, score, scale)`` for each match. The
-            list may be empty if no matches are found.
-
-        Raises
-        ------
-        InvalidImageException
-            If ``reference_image`` resolves to multiple files.
-        """
-        reference_images = self._get_reference_images(reference_image)
-        if len(reference_images) > 1:
-            raise InvalidImageException(
-                f'Locating ALL occurences of MANY files ({", ".join(reference_images)}) is not supported.'
-            )
-        locations = self._try_locate(
-            reference_images[0], locate_all=True, haystack_image=haystack_image
-        )
-        return locations
-
-    def does_exist(self, reference_image):
-        """Check whether a reference image exists on the screen.
-
-        Parameters
-        ----------
-        reference_image : str
-            Name of the reference image to locate.
-
-        Returns
-        -------
-        bool
-            ``True`` if the image was found, ``False`` otherwise. The keyword
-            never raises an exception.
-        """
-        with self._suppress_keyword_on_failure():
-            try:
-                self._locate(reference_image, log_it=True)
-                return True
-            except (ImageNotFoundException, ag.ImageNotFoundException):
-                return False
-    def locate_all(self, reference_image):
-        """Locate all occurrences of an image on screen.
-
-        Parameters
-        ----------
-        reference_image : str
-            Name or path of the image to locate.
-
-        Returns
-        -------
-        list[tuple]
-            List of tuples ``(x, y, score, scale)`` describing each match.
-
-        Raises
-        ------
-        InvalidImageException
-            If ``reference_image`` resolves to multiple files.
-        """
-        matches = []
-        locations = self._locate_all(reference_image)
-        if self.PIXEL_RATIO == 0.0:
-            self.__get_pixel_ratio()
-        for loc, score, scale in locations:
-            center = ag.center(loc)
-            x, y = center.x, center.y
-            if self.PIXEL_RATIO > 1:
-                x = x / self.PIXEL_RATIO
-                y = y / self.PIXEL_RATIO
-            matches.append((x, y, score, scale))
-        return matches
-
-    def _check_path_set(self) -> None:
-        if self.get_reference_folder() is None:
-            raise PathNotSetException
+    # def set_reference_folder(self, new_reference: Union[List[str], str]) -> None:
+    #     """
+    #     Description: Replaces the current reference folder(s) with a new one. This action rebuilds the internal
+    #     lookup table.
+    #
+    #     Parameters:
+    #     new_reference: A string or a list of strings representing the new directory path(s).
+    #
+    #     Behavior:
+    #     Performs the same validation as the __init__ method.
+    #     Raises TypeError or ValueError on invalid input.
+    #     Example:
+    #         Set Reference Folder    C:\\project\\images
+    #         Set Reference Folder    ${CURDIR}/images_v2
+    #         Set Reference Folder    ${list_of_image_paths}
+    #     """
+    #     self.__check_required_type(new_reference)
+    #     self.reference_folder = new_reference
+    #     self.look_up_table = self.__create_look_up_table()
 
     
-    def click_image(self, reference_image, timeout=DFLT_TIMEOUT):
-        location =  self.wait_for(reference_image, timeout=timeout)
-        #location = self._check_and_locate(image_name, timeout=timeout)
-        ag.click(location)
 
-    
-    def locate(self, reference_image, timeout=DFLT_TIMEOUT, log_it=True):
-        location =  self.wait_for(reference_image, timeout=timeout)
-        return location
+    # def __create_look_up_table(self):
+    #     if self.reference_folder is None:
+    #         raise PathNotSetException
+    #     self.__check_required_type(self.reference_folder)
+    #     look_up_table = {}
+    #     if isinstance(self.reference_folder, list):
+    #         for path in self.reference_folder:
+    #             self._fill_look_up(look_up_table, path)
+    #     else:
+    #         self._fill_look_up(look_up_table, self.reference_folder)
+    #     return look_up_table
+
+    # @staticmethod
+    # def _fill_look_up(look_up_table: dict, path: Path | str | List[str]):
+    #         current_path_files = list(Path(path).resolve(strict=True).glob("*.png"))
+    #         for current_path_file in current_path_files:
+    #             png_name = current_path_file.stem  ## TODO: Check if it does what yo hope for -->replaced .name for .stem
+    #             if png_name in look_up_table:
+    #                 current_png_path = look_up_table[png_name]
+    #                 LOGGER.warning(
+    #                     f" You are replacing the '{png_name}' in path '{current_path_file.parent}'"
+    #                     + ""
+    #                     f" with the {png_name} from path '{current_png_path}'"
+    #                 )
+    #             look_up_table[png_name] = str(current_path_file)
+
+
+
+    # def _check_and_locate(self, reference_image, timeout=0, log_it=True):
+    #     self._check_path_set()
+    #     return self._locate_image(reference_image, timeout=timeout, log_it=log_it)
+
+
+
+    # def _locate_all(self, reference_image, haystack_image=None):
+    #     """Locate all occurrences of a reference image.
+    #
+    #     Parameters
+    #     ----------
+    #     reference_image : str
+    #         Name or path of the image to search for.
+    #     haystack_image : array-like, optional
+    #         Pre-captured screenshot to search in. If ``None``, a new screenshot
+    #         of the screen is taken.
+    #
+    #     Returns
+    #     -------
+    #     list[tuple]
+    #         A list of tuples ``(location, score, scale)`` for each match. The
+    #         list may be empty if no matches are found.
+    #
+    #     Raises
+    #     ------
+    #     InvalidImageException
+    #         If ``reference_image`` resolves to multiple files.
+    #     """
+    #     reference_images = self._get_reference_images(reference_image)
+    #     if len(reference_images) > 1:
+    #         raise InvalidImageException(
+    #             f'Locating ALL occurences of MANY files ({", ".join(reference_images)}) is not supported.'
+    #         )
+    #     locations = self._try_locate(
+    #         reference_images[0], locate_all=True, haystack_image=haystack_image
+    #     )
+    #     return locations
+
+
+
+    # def _check_path_set(self) -> None:
+    #     if self.get_reference_folder() is None:
+    #         raise PathNotSetException
+
+
+    # def click_image(self, reference_image, timeout=DFLT_TIMEOUT):
+    #     location =  self.wait_for(reference_image, timeout=timeout)
+    #     #location = self._check_and_locate(image_name, timeout=timeout)
+    #     ag.click(location)
+
+
+    # def locate(self, reference_image, timeout=DFLT_TIMEOUT, log_it=True):
+    #     location =  self.wait_for(reference_image, timeout=timeout)
+    #     return location
         #return self._check_and_locate(reference_image, timeout=timeout)
-    
+
     def __count_track_mode_screenshots(self, track_mode_path: Path):
         count = 0
         for file in track_mode_path.iterdir():
@@ -388,7 +271,8 @@ class _RecognizeImages(object):
             pic = ag.screenshot()
             pic.save(path)
         ## TODO: This requires a rework
-        result  = self._try_locate(reference_image)  # Has to work, does to much
+        #correlating_image_path = self.look_up_table[reference_image.replace(".png", "")]
+        result  = self._try_locate(reference_image)  # Has to work, does to much instead of reference_image
         if isinstance(result, tuple) and len(result) == 3:
                 loc, scr, scl = result
         elif isinstance(result, np.ndarray) and result.shape == (3,):
@@ -410,10 +294,11 @@ class _RecognizeImages(object):
                 best_score is None or scr > best_score
             ):
                 best_score = scr
-        ## Rework till here 
+        print(f"look: {self.look_up_table}")
+        ## Rework till here
         try:
             image_location = ag.locateCenterOnScreen(
-                self.look_up_table[reference_image.replace(".png", "")],
+                reference_image,
                 grayscale=grayscale,
                 region=region,
                 confidence=self.confidence,
@@ -432,7 +317,7 @@ class _RecognizeImages(object):
         x = center_point.x
         y = center_point.y
         if self.PIXEL_RATIO == 0.0:
-            self.__get_pixel_ratio()
+            self.get_pixel_ratio()
         if self.PIXEL_RATIO > 1:
             x = x / self.PIXEL_RATIO
             y = y / self.PIXEL_RATIO
@@ -453,47 +338,47 @@ class _RecognizeImages(object):
         return (x, y, score, scale)
 
 
-    
-    def click(self, button: str = "left"):
-        ag.click(button=button)
 
-    
-    def click_to_the_left_of_image(
-        self, reference_image, offset, clicks, button="left", interval=0.0
-    ):
-        location = self._check_and_locate(reference_image)
-        new_location = self._change_coordinates_of_location(location, x=-abs(int(offset)))
-        ag.click(new_location, clicks=int(clicks), button=button, interval=interval)
+    # def click(self, button: str = "left"):
+    #     ag.click(button=button)
 
-    
-    def click_to_the_right_of_image(
-        self, reference_image, offset, clicks, button="left", interval=0.0
-    ):
-        location = self._check_and_locate(reference_image)
-        new_location = self._change_coordinates_of_location(location, x=abs(int(offset)))
-        ag.click(new_location, clicks=int(clicks), button=button, interval=interval)
 
-    
-    def click_to_the_above_of_image(
-        self, reference_image, offset, clicks, button="left", interval=0.0
-    ):
-        location = self._check_and_locate(reference_image)
-        new_location = self._change_coordinates_of_location(location, y=-abs(int(offset)))
-        ag.click(new_location, clicks=int(clicks), button=button, interval=interval)
+    # def click_to_the_left_of_image(
+    #     self, reference_image, offset, clicks, button="left", interval=0.0
+    # ):
+    #     location = self._check_and_locate(reference_image)
+    #     new_location = self._change_coordinates_of_location(location, x=-abs(int(offset)))
+    #     ag.click(new_location, clicks=int(clicks), button=button, interval=interval)
 
-    
-    def click_to_the_below_of_image(
-        self, reference_image, offset, clicks, button="left", interval=0.0
-    ):
-        location = self._check_and_locate(reference_image)
-        new_location = self._change_coordinates_of_location(location, y=abs(int(offset)))
-        ag.click(new_location, clicks=int(clicks), button=button, interval=interval)
 
-    def _check_and_locate(self, reference_image, timeout=0, log_it=True):
-        self._check_path_set()
-        return self._locate_image(reference_image, timeout=timeout, log_it=log_it)
+    # def click_to_the_right_of_image(
+    #     self, reference_image, offset, clicks, button="left", interval=0.0
+    # ):
+    #     location = self._check_and_locate(reference_image)
+    #     new_location = self._change_coordinates_of_location(location, x=abs(int(offset)))
+    #     ag.click(new_location, clicks=int(clicks), button=button, interval=interval)
 
-    def __get_pixel_ratio(self):
+
+    # def click_to_the_above_of_image(
+    #     self, reference_image, offset, clicks, button="left", interval=0.0
+    # ):
+    #     location = self._check_and_locate(reference_image)
+    #     new_location = self._change_coordinates_of_location(location, y=-abs(int(offset)))
+    #     ag.click(new_location, clicks=int(clicks), button=button, interval=interval)
+
+
+    # def click_to_the_below_of_image(
+    #     self, reference_image, offset, clicks, button="left", interval=0.0
+    # ):
+    #     location = self._check_and_locate(reference_image)
+    #     new_location = self._change_coordinates_of_location(location, y=abs(int(offset)))
+    #     ag.click(new_location, clicks=int(clicks), button=button, interval=interval)
+
+    # def _check_and_locate(self, reference_image, timeout=0, log_it=True):
+    #     self._check_path_set()
+    #     return self._locate_image(reference_image, timeout=timeout, log_it=log_it)
+
+    def get_pixel_ratio(self):
         """Calculate display pixel ratio once and cache it."""
         try:
             ratio = ag.screenshot().size[0] / ag.size().width
@@ -510,7 +395,7 @@ class _RecognizeImages(object):
             LOGGER.debug(e)
             LOGGER.warning("Failed to take a screenshot. " "Is Robot Framework running?")
 
-    def _raise_image_not_found_error(self, reference_image, log_it, best_score):
+    def __raise_image_not_found_error(self, reference_image, log_it, best_score):
         confidence = getattr(self, "confidence", None)
         matches = 0
         if log_it:
@@ -533,9 +418,6 @@ class _RecognizeImages(object):
         )
 
     
-
-
-
     def debug_image(self, reference_folder=None, minimize=False, dialog_default_dir=None):
         """Halts the test execution and opens the image debugger UI.
 

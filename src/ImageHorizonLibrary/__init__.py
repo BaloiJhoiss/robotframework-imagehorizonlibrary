@@ -2,7 +2,8 @@
 from collections import OrderedDict
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Type, List
+from time import time,  sleep
+from typing import Type, List, Union, Tuple
 import inspect
 
 from .errors import *  # import errors before checking dependencies!
@@ -207,6 +208,8 @@ class ImageHorizonLibrary(
 
     ROBOT_LIBRARY_SCOPE = "TEST SUITE"
     ROBOT_LIBRARY_VERSION = VERSION
+    DFLT_TIMEOUT = 0
+    PIXEL_RATIO = 0.0
 
     def __init__(
         self,
@@ -333,11 +336,18 @@ class ImageHorizonLibrary(
             self._fill_look_up(look_up_table, self.reference_folder)
         return look_up_table
 
-    def __evaluate_reference_folder(self, reference_folder):
+    def __evaluate_reference_folder(self, reference_folder) -> List[str]:
         ## Check if passed value is either string or List
-        image_path_type: Type[list| str] = self.__check_required_type(reference_folder)
+        image_path_type: Type[list|str|Path] = self.__check_required_type(reference_folder)
         self.__check_paths(image_path_type, reference_folder)
-        self.reference_folder = reference_folder if image_path_type is list else [reference_folder]
+        self.reference_folder=  self.__update_reference_folder(image_path_type, reference_folder)
+        return self.reference_folder
+
+    def __update_reference_folder(self,image_path_type, reference_folder):
+        if image_path_type is list:
+            self.reference_folder = [str(ref) for ref in reference_folder]
+        else:
+            self.reference_folder = [str(reference_folder)]
         return self.reference_folder
 
     @staticmethod
@@ -354,13 +364,13 @@ class ImageHorizonLibrary(
                 )
             look_up_table[png_name] = str(current_path_file)
 
-    def __check_paths(self, image_path_type: Type[list | str], reference_folder: Path):
-        if image_path_type is str:
-            if not Path(reference_folder).is_dir():
+    def __check_paths(self, image_path_type: Type[list | str |Path], reference_folder: Path):
+        if image_path_type is str or image_path_type is Path:
+            if not Path(str(reference_folder)).is_dir():
                 raise ValueError(self.__not_a_directory(reference_folder))
         else:
             for _, ref in enumerate(reference_folder):
-                if not Path(ref).is_dir():
+                if not Path(str(ref)).is_dir():
                     raise ValueError(self.__not_a_directory(reference_folder))
         return True
 
@@ -369,6 +379,8 @@ class ImageHorizonLibrary(
             return list
         elif isinstance(new_reference, str):
             return str
+        elif isinstance(new_reference, Path):
+            return Path
         else:
             raise TypeError(
                 f"reference must either be from type 'list' or 'str' not '{type(new_reference)}'"
@@ -566,12 +578,53 @@ class ImageHorizonLibrary(
         """
         self.keyword_on_failure = keyword_on_failure
 
-    def set_reference_folder(self, reference_folder_path):
-        """Sets where all reference images are stored.
+    # def set_reference_folder(self, reference_folder_path):
+    #     """Sets where all reference images are stored.
+    #
+    #     See `library importing` for format of the reference folder path.
+    #     """
+    #     self.reference_folder = reference_folder_path
 
-        See `library importing` for format of the reference folder path.
+    def set_reference_folder(self, new_reference: Union[List[str], str]) -> None:
         """
-        self.reference_folder = reference_folder_path
+        Description: Replaces the current reference folder(s) with a new one. This action rebuilds the internal
+        lookup table.
+
+        Parameters:
+        new_reference: A string or a list of strings representing the new directory path(s).
+
+        Behavior:
+        Performs the same validation as the __init__ method.
+        Raises TypeError or ValueError on invalid input.
+        Example:
+            Set Reference Folder    C:\\project\\images
+            Set Reference Folder    ${CURDIR}/images_v2
+            Set Reference Folder    ${list_of_image_paths}
+        """
+        path_type = self.__check_required_type(new_reference)
+        self.reference_folder = self.__update_reference_folder(path_type, new_reference)
+        self.look_up_table = self.__create_look_up_table()
+
+    def add_reference_folder(self, new_reference: Union[List[str], str, Path]) -> None:
+        if isinstance(new_reference, list) or  isinstance(new_reference, str) or isinstance(new_reference, Path):
+            #if isinstance(self.reference_folder, str):  # self.reference_folder is a list of strings?
+            #    tmp = self.reference_folder.split() # error-prone -> user has to make sure paths are separated via spaces
+            #    tmp.extend(new_reference) if isinstance(
+            #        new_reference, list
+            #    ) else tmp.append(new_reference)
+            #else:
+            tmp = self.reference_folder
+            tmp.extend(new_reference) if isinstance(
+            new_reference, list) else tmp.append(new_reference)
+            try:
+                self.reference_folder = self.__evaluate_reference_folder(tmp)
+            except ValueError:
+                raise ValueError("There are invalid PATHS in your passed argument!")
+            self.look_up_table = self.__create_look_up_table()
+        else:
+            raise TypeError(
+                f"reference must either be from type 'list' or 'str' not '{type(new_reference)}'"
+            )
 
     def set_screenshot_folder(self, screenshot_folder_path):
         """Sets the folder where screenshots are saved to.
@@ -637,3 +690,227 @@ class ImageHorizonLibrary(
         self.scale_min = 0.8
         self.scale_max = 1.2
         self.scale_steps = 9
+
+    def _check_and_locate(self, reference_image, timeout=0, log_it=True):
+        self._check_path_set()
+        return self._locate_image(reference_image, timeout=timeout, log_it=log_it)
+
+
+    def wait_for(self, reference_image, timeout=10, log_it=True):
+        """Wait until an image appears on the screen.
+
+        Parameters
+        ----------
+        reference_image : str
+            Name of the reference image to locate.
+        timeout : float, optional
+            Maximum number of seconds to wait. Defaults to ``10``.
+
+        Returns
+        -------
+        tuple
+            Tuple ``(x, y, score, scale)`` describing the match.
+
+        Raises
+        ------
+        ImageNotFoundException
+            If the image is not found within the timeout.
+        """
+        stop_time = time() + float(timeout)
+        location = None
+        # last_exc = None
+        normalized_reference_image: str = self.__normalize_reference_image(reference_image)
+        reference_path = self.__check_reference_image(normalized_reference_image)
+        with self._suppress_keyword_on_failure():
+            while True:
+                try:
+                    location = self._check_and_locate(reference_path, timeout=0, log_it=True)
+                    break
+                except (
+                    # InvalidImageException, # Replace with ImageNotInPathException
+                    # ReferenceFolderException,  is covered ealier
+                    # StrategyException,  # why here
+                    # ScreenshotFolderException, # why here?
+                ):
+                    # These indicate a permanent misconfiguration and should not
+                    # be retried within this loop.
+                    raise
+                except ImageNotFoundException as e:  # other exceptions should raise
+                    last_exc = e
+                    if time() > stop_time:
+                        break
+                    sleep(0.1)
+        if location is None:
+            self.__raise_image_not_found_error(reference_image, log_it, None)  # need to think about that
+        x, y, score, scale = location
+        LOGGER.info(
+            'Image "%s" found at %r (score %.3f, scale %.2f)'
+            % (
+                reference_image,
+                (x, y),
+                score if score is not None else float('nan'),
+                scale,
+            )
+        )
+        return location
+
+
+    def _locate_all(self, reference_image, haystack_image=None):
+        """Locate all occurrences of a reference image.
+
+        Parameters
+        ----------
+        reference_image : str
+            Name or path of the image to search for.
+        haystack_image : array-like, optional
+            Pre-captured screenshot to search in. If ``None``, a new screenshot
+            of the screen is taken.
+
+        Returns
+        -------
+        list[tuple]
+            A list of tuples ``(location, score, scale)`` for each match. The
+            list may be empty if no matches are found.
+
+        Raises
+        ------
+        InvalidImageException
+            If ``reference_image`` resolves to multiple files.
+        """
+       # reference_images = self._get_reference_images(reference_image)
+       # if len(reference_images) > 1:
+        #    raise InvalidImageException(
+        #        f'Locating ALL occurences of MANY files ({", ".join(reference_images)}) is not supported.'
+        #    )
+        normalized_name = self.__normalize_reference_image(reference_image)
+        self.__check_reference_image(self.__normalize_reference_image(reference_image))
+        ref_image_path = self.look_up_table[normalized_name]
+        locations = self._try_locate(
+            ref_image_path, locate_all=True, haystack_image=haystack_image
+        )
+        return locations
+
+
+    def does_exist(self, reference_image):
+        """Check whether a reference image exists on the screen.
+
+        Parameters
+        ----------
+        reference_image : str
+            Name of the reference image to locate.
+
+        Returns
+        -------
+        bool
+            ``True`` if the image was found, ``False`` otherwise. The keyword
+            never raises an exception.
+        """
+        with self._suppress_keyword_on_failure():
+            try:
+                self.wait_for(reference_image, timeout=0, log_it=True)
+                return True
+            except (ImageNotFoundException, ag.ImageNotFoundException):
+                return False
+
+
+    def locate_all(self, reference_image):
+        """Locate all occurrences of an image on screen.
+
+        Parameters
+        ----------
+        reference_image : str
+            Name or path of the image to locate.
+
+        Returns
+        -------
+        list[tuple]
+            List of tuples ``(x, y, score, scale)`` describing each match.
+
+        Raises
+        ------
+        InvalidImageException
+            If ``reference_image`` resolves to multiple files.
+        """
+        matches = []
+        locations = self._locate_all(reference_image)
+        if self.PIXEL_RATIO == 0.0:
+            self.get_pixel_ratio()
+        for loc, score, scale in locations:
+            center = ag.center(loc)
+            x, y = center.x, center.y
+            if self.PIXEL_RATIO > 1:
+                x = x / self.PIXEL_RATIO
+                y = y / self.PIXEL_RATIO
+            matches.append((x, y, score, scale))
+        return matches
+
+
+    def _check_path_set(self) -> None:
+        if self.get_reference_folder() is None:
+            raise PathNotSetException
+
+
+    def click_image(self, reference_image, timeout=DFLT_TIMEOUT):
+        location = self.wait_for(reference_image, timeout=timeout)
+        # location = self._check_and_locate(image_name, timeout=timeout)
+        ag.click(location)
+        return location
+
+
+    def locate(self, reference_image, timeout=DFLT_TIMEOUT, log_it=True):
+        location = self.wait_for(reference_image, timeout=timeout)
+        return location
+
+
+    def click(self, button: str = "left"):
+        ag.click(button=button)
+
+
+    def click_to_the_left_of_image(
+            self, reference_image, offset, clicks, button="left", interval=0.0
+    ):
+        x, y, score, scale = self.wait_for(reference_image, timeout=0)
+        location = (x,y)
+        new_location = self._change_coordinates_of_location(location, x=-abs(int(offset)))
+        updated_location = new_location[0], new_location[1], score, scale
+        ag.click(new_location, clicks=int(clicks), button=button, interval=interval)
+        return updated_location
+
+
+    def click_to_the_right_of_image(
+            self, reference_image, offset, clicks, button="left", interval=0.0
+    ):
+        location = self._check_and_locate(reference_image)
+        new_location = self._change_coordinates_of_location(location, x=abs(int(offset)))
+        ag.click(new_location, clicks=int(clicks), button=button, interval=interval)
+
+
+    def click_to_the_above_of_image(
+            self, reference_image, offset, clicks, button="left", interval=0.0
+    ):
+        location = self._check_and_locate(reference_image)
+        new_location = self._change_coordinates_of_location(location, y=-abs(int(offset)))
+        ag.click(new_location, clicks=int(clicks), button=button, interval=interval)
+
+
+    def click_to_the_below_of_image(
+            self, reference_image, offset, clicks, button="left", interval=0.0
+    ):
+        location = self._check_and_locate(reference_image)
+        new_location = self._change_coordinates_of_location(location, y=abs(int(offset)))
+        ag.click(new_location, clicks=int(clicks), button=button, interval=interval)
+
+    def __check_reference_image(self, reference_image):
+        if reference_image in self.look_up_table:
+            return self.look_up_table[reference_image]
+        else:
+            raise ImageNotFoundException(f"'{reference_image}' file name was not found in path '{self.look_up_table}'")
+    @staticmethod
+    def __normalize_reference_image(reference_image: str):
+        # type error if not a string
+        return reference_image.lower().replace(" ", "").replace(".png","")
+
+
+    def _change_coordinates_of_location(self, location, x=0, y=0) -> Tuple[int]:
+        new_x, new_y  = location[0] + x, location[0] + y
+        return (new_x, new_y)

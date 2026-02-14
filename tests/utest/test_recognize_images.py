@@ -27,7 +27,7 @@ class TestRecognizeImages(TestCase):
         self.patcher = patch.dict('sys.modules', {'pyautogui': self.mock})
         self.patcher.start()
         from ImageHorizonLibrary import ImageHorizonLibrary
-        self.lib = ImageHorizonLibrary(reference_folder=TESTIMG_DIR)
+        self.lib = ImageHorizonLibrary(reference_folder=TESTIMG_DIR, confidence=0.99)
         self.locate = 'ImageHorizonLibrary.ImageHorizonLibrary.locate'
         self._locate = 'ImageHorizonLibrary.ImageHorizonLibrary._locate'
         self._try_locate = 'ImageHorizonLibrary.ImageHorizonLibrary._try_locate'
