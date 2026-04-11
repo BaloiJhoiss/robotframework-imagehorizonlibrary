@@ -27,18 +27,18 @@ class ImageNotFoundException(Exception):
         """
 
         self.image_name = image_name
-        self.matches = matches
+        self.matches = matches  # TODO: when is this parameter useful?
         self.best_score = best_score
         self.confidence = confidence
 
     def __str__(self):
-        msg = 'Reference image "%s" was not found on screen' % self.image_name
+        msg = f"Reference image '{self.image_name}' was not found on screen"
         details = []
         if self.matches:
             details.append(f"matches found: {self.matches}")
         if self.best_score is not None and self.confidence is not None:
             details.append(
-                f"best score {self.best_score:.2f} (confidence {self.confidence:.2f})"
+                f"best score {self.best_score:.2f} and (confidence {self.confidence:.2f})"
             )
         elif self.best_score is not None:
             details.append(f"best score {self.best_score:.2f}")
@@ -84,7 +84,7 @@ class PathNotSetException(Exception):
                     """
 
     def __str__(self):
-        return  PathNotSetException
+        return  self.PATH_NOT_SET
     
 class ImageNotInPath(KeyError):
     def __init__(self, image_name, image_path):

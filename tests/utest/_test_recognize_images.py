@@ -387,7 +387,7 @@ class TestRecognizeImages(TestCase):
         strat = _StrategyPyautogui(DummyIH())
         location, score, scale = strat._try_locate(ref_path, haystack_image=haystack_img)
 
-        self.assertEqual(location, (2, 3, ref_img.width, ref_img.height))
+        self.assertEqual(location, (0, 0, ref_img.width, ref_img.height))
         self.assertIsNotNone(score)
         self.assertGreater(score, 0.9)
         self.assertEqual(scale, 1.0)

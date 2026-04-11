@@ -79,3 +79,7 @@ class TestScreenshot(TestCase):
         self.mock.getWindowsWithTitle.return_value = []
         with self.assertRaises(ValueError):
             self.lib.take_a_screenshot(window='Missing')
+
+    def test_take_a_screenshot_window_and_region(self):
+        with self.assertRaises(ValueError):
+            self.lib.take_a_screenshot(window='Missing', region=(0,0,200,300))

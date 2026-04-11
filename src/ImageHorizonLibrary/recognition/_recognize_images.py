@@ -15,7 +15,7 @@ from robot.api import logger as LOGGER
 # ``cv2`` imports ``numpy`` internally.  Import ``numpy`` explicitly first to
 # ensure it is loaded only once and avoid "module reloaded" warnings on Python
 # 3.12+.
-import numpy as np
+
 
 try:  # pragma: no cover - optional dependency
     import cv2
@@ -260,6 +260,7 @@ class _RecognizeImages(object):
         return count
 
     def _locate_image(self, reference_image, timeout=0, grayscale=None, region=None, log_it=True):
+        import numpy as np
         pic=None
         path = None
         best_score = None
@@ -270,57 +271,49 @@ class _RecognizeImages(object):
             print(f"Path: {path}")
             pic = ag.screenshot()
             pic.save(path)
-        ## TODO: This requires a rework
+        ## TODO: This requires a rework, may not need if isinstance
         #correlating_image_path = self.look_up_table[reference_image.replace(".png", "")]
         result  = self._try_locate(reference_image)  # Has to work, does to much instead of reference_image
-        if isinstance(result, tuple) and len(result) == 3:
-                loc, scr, scl = result
-        elif isinstance(result, np.ndarray) and result.shape == (3,):
-                loc, scr, scl = result[0], result[1], result[2]
-        else:
-                loc, scr, scl = result, None, 1.0
+        #if isinstance(result, tuple) and len(result) == 3:
+        loc, scr, scl = result
+        print(f"type: {loc}")
+ #       elif isinstance(result, np.ndarray) and result.shape == (3,):  # not relevant for default strategy 
+ #               loc, scr, scl = result[0], result[1], result[2]
+ #       else:
+ #               loc, scr, scl = result, None, 1.0
 
-        if loc is not None:
-            if isinstance(loc, np.ndarray):
-                loc = tuple(np.asarray(loc).flatten().tolist())
-            if isinstance(scr, np.ndarray):
-                scr = float(np.asarray(scr).flat[0])
-            if isinstance(scl, np.ndarray):
-                scl = float(np.asarray(scl).flat[0])
-            location, score, scale = loc, scr, scl
-            #break
-        else:
-            if scr is not None and (
-                best_score is None or scr > best_score
-            ):
-                best_score = scr
-        print(f"look: {self.look_up_table}")
+        # if loc is not None:
+        #     if isinstance(loc, np.ndarray):
+        #         loc = tuple(np.asarray(loc).flatten().tolist())
+        #     if isinstance(scr, np.ndarray):
+        #         scr = float(np.asarray(scr).flat[0])
+        #     if isinstance(scl, np.ndarray):
+        #         scl = float(np.asarray(scl).flat[0])
+        _, score, scale = loc, scr, scl
+        #     #break
+        # else:
+        if scr is not None and (
+            best_score is None or scr > best_score
+        ):
+            best_score = scr
         ## Rework till here
-        try:
-            image_location = ag.locateCenterOnScreen(
-                reference_image,
-                grayscale=grayscale,
-                region=region,
-                confidence=self.confidence,
-            )
-
-        except KeyError:
-            raise ImageNotInPath(reference_image, self.get_reference_folder())
-        except ImageNotFoundException:
-            self.__raise_image_not_found_error(reference_image, log_it, best_score)
-            #raise ImageNotFoundException(
-            #    f"Image '{reference_image}' was not found on screen!"
-            #)
-
-
+        #  try/catch covered in _try_locate
+        image_location = ag.locateCenterOnScreen(
+            reference_image,
+            grayscale=grayscale,
+            region=region,
+            confidence=self.confidence,
+        )
         center_point = image_location  # instead of ag.center(location)
         x = center_point.x
         y = center_point.y
+        ## TODO: ignored for  now
         if self.PIXEL_RATIO == 0.0:
             self.get_pixel_ratio()
         if self.PIXEL_RATIO > 1:
             x = x / self.PIXEL_RATIO
             y = y / self.PIXEL_RATIO
+        ### Until here ###
         if log_it:
             LOGGER.info(
                 'Image "%s" found at %r (score %.3f, scale %.2f, strategy: %s)'
@@ -333,50 +326,11 @@ class _RecognizeImages(object):
                 )
             )
         if pic:
-            template_image_path = self.look_up_table[reference_image.replace(".png", "")]
+            template_image_path = reference_image
             self.mark_image_location(path,template_image_path , path)
         return (x, y, score, scale)
 
 
-
-    # def click(self, button: str = "left"):
-    #     ag.click(button=button)
-
-
-    # def click_to_the_left_of_image(
-    #     self, reference_image, offset, clicks, button="left", interval=0.0
-    # ):
-    #     location = self._check_and_locate(reference_image)
-    #     new_location = self._change_coordinates_of_location(location, x=-abs(int(offset)))
-    #     ag.click(new_location, clicks=int(clicks), button=button, interval=interval)
-
-
-    # def click_to_the_right_of_image(
-    #     self, reference_image, offset, clicks, button="left", interval=0.0
-    # ):
-    #     location = self._check_and_locate(reference_image)
-    #     new_location = self._change_coordinates_of_location(location, x=abs(int(offset)))
-    #     ag.click(new_location, clicks=int(clicks), button=button, interval=interval)
-
-
-    # def click_to_the_above_of_image(
-    #     self, reference_image, offset, clicks, button="left", interval=0.0
-    # ):
-    #     location = self._check_and_locate(reference_image)
-    #     new_location = self._change_coordinates_of_location(location, y=-abs(int(offset)))
-    #     ag.click(new_location, clicks=int(clicks), button=button, interval=interval)
-
-
-    # def click_to_the_below_of_image(
-    #     self, reference_image, offset, clicks, button="left", interval=0.0
-    # ):
-    #     location = self._check_and_locate(reference_image)
-    #     new_location = self._change_coordinates_of_location(location, y=abs(int(offset)))
-    #     ag.click(new_location, clicks=int(clicks), button=button, interval=interval)
-
-    # def _check_and_locate(self, reference_image, timeout=0, log_it=True):
-    #     self._check_path_set()
-    #     return self._locate_image(reference_image, timeout=timeout, log_it=log_it)
 
     def get_pixel_ratio(self):
         """Calculate display pixel ratio once and cache it."""
@@ -386,36 +340,64 @@ class _RecognizeImages(object):
         except Exception:
             self.PIXEL_RATIO = 1.0
 
-    def _run_on_failure(self):
-        if not self.keyword_on_failure:
-            return
-        try:
-            BuiltIn().run_keyword(self.keyword_on_failure)
-        except Exception as e:
-            LOGGER.debug(e)
-            LOGGER.warning("Failed to take a screenshot. " "Is Robot Framework running?")
+    def mark_image_location(self, source_path, template_path, output_path):
+        """
+        Finds and marks the location of a template image within a source image.
+        """
+        # 1. Load the images
+        img_bgr = cv2.imread(source_path)
+        template = cv2.imread(template_path)
 
-    def __raise_image_not_found_error(self, reference_image, log_it, best_score):
-        confidence = getattr(self, "confidence", None)
-        matches = 0
-        if log_it:
-            LOGGER.info(
-                'Image "%s" was not found on screen. '
-                "(strategy: %s, matches: %d, best score %.3f, confidence %.3f)"
-                % (
-                    reference_image,
-                    self.strategy,
-                    matches,
-                    best_score if best_score is not None else float('nan'),
-                    confidence if confidence is not None else float('nan'),
-                )
-            )
-        self._run_on_failure()
-        raise ImageNotFoundException(
-            reference_image,
-            best_score=best_score,
-            confidence=confidence,
-        )
+        if img_bgr is None or template is None:
+            print("Error: Could not load one or both images.")
+            return
+
+        # Get the dimensions of the template
+        w, h = template.shape[1], template.shape[0]
+
+        # 2. Template Matching
+        # Use a standard matching method (e.g., TM_CCOEFF_NORMED is robust)
+        method = cv2.TM_CCOEFF_NORMED
+        result = cv2.matchTemplate(img_bgr, template, method)
+
+        # 3. Find Best Match
+        min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
+
+        # For TM_CCOEFF_NORMED, the best match is the maximum value
+        top_left = max_loc
+        
+        # Calculate the bottom-right corner of the bounding box
+        bottom_right = (top_left[0] + w, top_left[1] + h)
+
+        # 4. Draw Bounding Box
+        # Draw a green rectangle with a thickness of 2
+        color = (0, 255, 0) # Green in BGR format
+        thickness = 2
+        cv2.rectangle(img_bgr, top_left, bottom_right, color, thickness)
+        
+        # Optional: Display the results
+        # Convert from BGR to RGB for matplotlib display
+        img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB) 
+        
+        #plt.imshow(img_rgb)
+        #plt.title(f"Template Found (Confidence: {max_val:.4f})")
+        #plt.axis('off')
+        #plt.show()
+
+        # Save the resulting image
+        cv2.imwrite(output_path, img_bgr)
+        print(f"Result saved to {output_path}")
+
+    # def _run_on_failure(self):
+    #     if not self.keyword_on_failure:
+    #         return
+    #     try:
+    #         BuiltIn().run_keyword(self.keyword_on_failure)
+    #     except Exception as e:
+    #         LOGGER.debug(e)
+    #         LOGGER.warning("Failed to take a screenshot. " "Is Robot Framework running?")
+
+    
 
     
     def debug_image(self, reference_folder=None, minimize=False, dialog_default_dir=None):
@@ -496,6 +478,7 @@ class _StrategyPyautogui:
             is returned. ``location`` may be ``None`` if no match was found. When
             ``locate_all`` is ``True`` a list of such tuples is returned.
         """
+        import numpy as np
         ih = self.ih_instance
 
         if haystack_image is None:
@@ -592,7 +575,7 @@ class _StrategyPyautogui:
                         )
                     location_res = locate_func(ref_image, haystack_image)
             except (ImageNotFoundException, ag.ImageNotFoundException) as ex:
-                LOGGER.info(ex)
+                #LOGGER.info(ex)
                 location_res = None
 
         if locate_all:
@@ -643,10 +626,11 @@ class _StrategyCv2:
     """Image matching strategy using OpenCV edge detection."""
 
     _CV_DEFAULT_CONFIDENCE = 0.9
+    # assumes default of 0.9 if value is not passed. Why not 0.99?
 
     def __init__(self, image_horizon_instance):
         """Store reference to the owning ImageHorizonLibrary instance."""
-        self.ih_instance = image_horizon_instance
+        self.ih_instance = image_horizon_instance # ?
 
     def _try_locate(self, ref_image, haystack_image=None, locate_all=False):
         """Locate a reference image using OpenCV edge detection.
@@ -668,22 +652,24 @@ class _StrategyCv2:
             When ``locate_all`` is ``True``: a list of such tuples for each
             detected match.
         """
-
+        import numpy as np
         ih = self.ih_instance
         confidence = ih.confidence or self._CV_DEFAULT_CONFIDENCE
+        # setting confidence
         with ih._suppress_keyword_on_failure():
             needle_img = cv2.imread(ref_image, cv2.IMREAD_GRAYSCALE)
             if haystack_image is None:
                 haystack_img_gray = cv2.cvtColor(
                     np.array(ag.screenshot()), cv2.COLOR_RGB2GRAY
-                )
+                )# if no haystack is passed, make a screenshot
             else:
                 if len(haystack_image.shape) == 2:
+                    # if haystack has a shape of two, it is assumed 2??
                     haystack_img_gray = haystack_image
                 else:
                     haystack_img_gray = cv2.cvtColor(
                         haystack_image, cv2.COLOR_BGR2GRAY
-                    )
+                    )# is equal to .shape==2
 
             ih.haystack_edge = self.detect_edges(haystack_img_gray)
 
@@ -803,6 +789,7 @@ class _StrategyCv2:
         # we are working with a NumPy array of floats to avoid type promotion
         # issues which manifested as ``umr_maximum``/``float`` errors on some
         # platforms.
+        import numpy as np
         img_float = np.asarray(img, dtype=np.float64)
         max_val = float(np.max(img_float)) if img_float.size else 0.0
         if max_val > 1.0:
@@ -845,6 +832,7 @@ class _StrategyCv2:
         array-like
             Edge-detected binary image.
         """
+        import numpy as np
         preprocess = self.ih_instance.edge_preprocess
         ksize = int(self.ih_instance.edge_kernel_size or 3)
 

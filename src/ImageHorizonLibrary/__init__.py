@@ -5,6 +5,10 @@ from pathlib import Path
 from time import time,  sleep
 from typing import Type, List, Union, Tuple
 import inspect
+import math
+
+from ImageHorizonLibrary.errors import ImageNotFoundException
+
 
 from .errors import *  # import errors before checking dependencies!
 
@@ -216,15 +220,16 @@ class ImageHorizonLibrary(
         reference_folder=None,
         screenshot_folder=None,
         keyword_on_failure="ImageHorizonLibrary.Take A Screenshot",
-        confidence=None,
+        confidence=float("nan"),  #TODO: Clarification: will be set to 0.99 if cv is available
         strategy="default",
-        edge_sigma=None,
-        edge_low_threshold=None,
-        edge_high_threshold=None,
+        edge_sigma=None, #TODO: cannot work with default setting
+        edge_low_threshold=None, # TODO: cannot work with default setting
+        edge_high_threshold=None, # TODO: cannot work with default setting
         edge_preprocess=None,
         edge_kernel_size=3,
         validate_match=False,
         validation_margin=5,
+        scale_enabled=False,
         track_mode = False,
     ):
         """ImageHorizonLibrary can be imported with several options.
@@ -282,10 +287,11 @@ class ImageHorizonLibrary(
         self.is_linux = utils.is_linux()
         self.has_retina = utils.has_retina()
         self.has_cv = utils.has_cv()
-        self.confidence = confidence
+        self.confidence = 0.99 if math.isnan(confidence) else confidence
         self.initial_confidence = confidence
         self._class_bases = inspect.getmro(self.__class__)
         self.set_strategy(strategy, self.confidence)
+        ### TODO: This hides an annoying error, rather let the processing fail ### 
         try:
             self.edge_sigma = float(edge_sigma) if edge_sigma is not None else None
         except (TypeError, ValueError):
@@ -314,7 +320,7 @@ class ImageHorizonLibrary(
             self.validation_margin = 5
 
         # multi-scale search configuration
-        self.scale_enabled = False
+        self.scale_enabled = scale_enabled
         self.scale_min = 0.8
         self.scale_max = 1.2
         self.scale_steps = 9
@@ -559,13 +565,26 @@ class ImageHorizonLibrary(
         ag.alert(text="Test execution paused.", title="Pause", button="Continue")
 
     def _run_on_failure(self):
-        if not self.keyword_on_failure:
-            return
-        try:
-            BuiltIn().run_keyword(self.keyword_on_failure)
-        except Exception as e:
-            LOGGER.debug(e)
-            LOGGER.warn("Failed to take a screenshot. " "Is Robot Framework running?")
+        default ="""
+        <h2> Image Not Found!
+        <img scr='' alt='Image of the error resulting screenshot'>Image was not found<img/>
+        <h2/>
+                """ 
+        try: 
+            img = ag.screenshot("./not_found.png")
+            image_path = str(Path(img)).resolve()
+            default.replace("src=''", f"src='{image_path}'")
+            LOGGER.error(default)
+            print("went through")
+        except Exception:
+            pass
+        # if not self.keyword_on_failure:
+        #     return
+        # try:
+        #     BuiltIn().run_keyword(self.keyword_on_failure)
+        # except Exception as e:
+        #     LOGGER.debug(e)
+        #     LOGGER.warn("Failed to take a screenshot. " "Is Robot Framework running?")
 
     def set_keyword_on_failure(self, keyword_on_failure):
         """Sets the keyword to run when location-related keywords fail.
@@ -578,12 +597,6 @@ class ImageHorizonLibrary(
         """
         self.keyword_on_failure = keyword_on_failure
 
-    # def set_reference_folder(self, reference_folder_path):
-    #     """Sets where all reference images are stored.
-    #
-    #     See `library importing` for format of the reference folder path.
-    #     """
-    #     self.reference_folder = reference_folder_path
 
     def set_reference_folder(self, new_reference: Union[List[str], str]) -> None:
         """
@@ -726,22 +739,22 @@ class ImageHorizonLibrary(
                 try:
                     location = self._check_and_locate(reference_path, timeout=0, log_it=True)
                     break
-                except (
+                #except (
                     # InvalidImageException, # Replace with ImageNotInPathException
                     # ReferenceFolderException,  is covered ealier
                     # StrategyException,  # why here
                     # ScreenshotFolderException, # why here?
-                ):
+                #):
                     # These indicate a permanent misconfiguration and should not
                     # be retried within this loop.
-                    raise
-                except ImageNotFoundException as e:  # other exceptions should raise
+                #    raise
+                except ag.ImageNotFoundException as e:  # other exceptions should raise
                     last_exc = e
                     if time() > stop_time:
                         break
-                    sleep(0.1)
+                        sleep(0.1)
         if location is None:
-            self.__raise_image_not_found_error(reference_image, log_it, None)  # need to think about that
+            self.__raise_image_not_found_error(reference_image, None)  # need to think about that
         x, y, score, scale = location
         LOGGER.info(
             'Image "%s" found at %r (score %.3f, scale %.2f)'
@@ -753,6 +766,33 @@ class ImageHorizonLibrary(
             )
         )
         return location
+    
+    def __raise_image_not_found_error(self, reference_image, best_score):
+        #confidence = getattr(self, "confidence", None)
+        matches = 0
+        best_score if best_score is not None else float('nan'),
+        self.confidence if self.confidence is not None else float('nan'),
+        #if log_it:
+        best_match = f"Image '{self.strategy}' was not found on screen. "\
+        f"(strategy: {self.strategy}, matches: {matches}, best score {best_score}, confidence {self.confidence}"
+            # % (
+            #     reference_image,
+            #     self.strategy,
+            #     matches,
+            #     best_score if best_score is not None else float('nan'),
+            #     self.confidence if self.confidence is not None else float('nan'),
+            # )
+        #print(best_match)
+        LOGGER.info(
+            best_match
+        )
+        self._run_on_failure()
+        raise ImageNotFoundException(
+            reference_image,
+            matches=matches,
+            best_score=best_score,
+            confidence=self.confidence,
+        )
 
 
     def _locate_all(self, reference_image, haystack_image=None):
@@ -880,31 +920,40 @@ class ImageHorizonLibrary(
     def click_to_the_right_of_image(
             self, reference_image, offset, clicks, button="left", interval=0.0
     ):
-        location = self._check_and_locate(reference_image)
+        x, y, score, scale = self.wait_for(reference_image, timeout=0)
+        location = (x,y)
         new_location = self._change_coordinates_of_location(location, x=abs(int(offset)))
+        updated_location = new_location[0], new_location[1], score, scale
         ag.click(new_location, clicks=int(clicks), button=button, interval=interval)
+        return updated_location
 
 
     def click_to_the_above_of_image(
             self, reference_image, offset, clicks, button="left", interval=0.0
     ):
-        location = self._check_and_locate(reference_image)
+        x, y, score, scale = self.wait_for(reference_image, timeout=0)
+        location = (x,y)
         new_location = self._change_coordinates_of_location(location, y=-abs(int(offset)))
+        updated_location = new_location[0], new_location[1], score, scale
         ag.click(new_location, clicks=int(clicks), button=button, interval=interval)
+        return updated_location
 
 
     def click_to_the_below_of_image(
             self, reference_image, offset, clicks, button="left", interval=0.0
     ):
-        location = self._check_and_locate(reference_image)
+        x, y, score, scale = self.wait_for(reference_image, timeout=0)
+        location = (x,y)
         new_location = self._change_coordinates_of_location(location, y=abs(int(offset)))
+        updated_location = new_location[0], new_location[1], score, scale
         ag.click(new_location, clicks=int(clicks), button=button, interval=interval)
+        return updated_location
 
     def __check_reference_image(self, reference_image):
         if reference_image in self.look_up_table:
             return self.look_up_table[reference_image]
         else:
-            raise ImageNotFoundException(f"'{reference_image}' file name was not found in path '{self.look_up_table}'")
+            raise ImageNotInPath(reference_image, self.look_up_table)
     @staticmethod
     def __normalize_reference_image(reference_image: str):
         # type error if not a string
