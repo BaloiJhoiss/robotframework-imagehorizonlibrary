@@ -52,6 +52,11 @@ from .version import VERSION
 __version__ = VERSION
 
 
+def _is_pyautogui_image_not_found(exc):
+    image_not_found = getattr(ag, "ImageNotFoundException", None)
+    return isinstance(image_not_found, type) and isinstance(exc, image_not_found)
+
+
 class ImageHorizonLibrary(
     _Keyboard, _Mouse, _OperatingSystem,_RecognizeImages, _Screenshot
 ):
@@ -288,9 +293,19 @@ class ImageHorizonLibrary(
         self.has_retina = utils.has_retina()
         self.has_cv = utils.has_cv()
         self.confidence = 0.99 if math.isnan(confidence) else confidence
-        self.initial_confidence = confidence
+        self.initial_confidence = self.confidence
         self._class_bases = inspect.getmro(self.__class__)
-        self.set_strategy(strategy, self.confidence)
+        self.set_strategy(
+            strategy,
+            edge_sigma=edge_sigma,
+            edge_low_threshold=edge_low_threshold,
+            edge_high_threshold=edge_high_threshold,
+            confidence=self.confidence,
+            edge_preprocess=edge_preprocess,
+            edge_kernel_size=edge_kernel_size,
+            validate_match=validate_match,
+            validation_margin=validation_margin,
+        )
         ### TODO: This hides an annoying error, rather let the processing fail ### 
         try:
             self.edge_sigma = float(edge_sigma) if edge_sigma is not None else None
@@ -363,10 +378,10 @@ class ImageHorizonLibrary(
             png_name = current_path_file.stem  ## TODO: Check if it does what yo hope for -->replaced .name for .stem
             if png_name in look_up_table:
                 current_png_path = look_up_table[png_name]
-                LOGGER.warning(
+                LOGGER.warn(
                     f" You are replacing the '{png_name}' in path '{current_path_file.parent}'"
                     + ""
-                      f" with the {png_name} from path '{current_png_path}'"
+                    f" with the {png_name} from path '{current_png_path}'"
                 )
             look_up_table[png_name] = str(current_path_file)
 
@@ -614,8 +629,7 @@ class ImageHorizonLibrary(
             Set Reference Folder    ${CURDIR}/images_v2
             Set Reference Folder    ${list_of_image_paths}
         """
-        path_type = self.__check_required_type(new_reference)
-        self.reference_folder = self.__update_reference_folder(path_type, new_reference)
+        self.reference_folder = self.__evaluate_reference_folder(new_reference)
         self.look_up_table = self.__create_look_up_table()
 
     def add_reference_folder(self, new_reference: Union[List[str], str, Path]) -> None:
@@ -645,6 +659,41 @@ class ImageHorizonLibrary(
         See `library importing` for more specific information.
         """
         self.screenshot_folder = screenshot_folder_path
+
+    def set_track_mode(self, enabled=True):
+        """Enable or disable track mode during test execution.
+
+        When track mode is enabled, image-location keywords save the screenshot
+        used for matching as ``track_mode-N.png`` in ``screenshot_folder`` or
+        in the current working directory when no screenshot folder is set.
+
+        ``enabled`` accepts booleans and common Robot Framework truthy/falsey
+        strings such as ``true``, ``false``, ``yes``, ``no``, ``1`` and ``0``.
+        """
+        self.track_mode = self.__to_bool(enabled, "enabled")
+        return self.track_mode
+
+    def enable_track_mode(self):
+        """Enable track mode during test execution."""
+        return self.set_track_mode(True)
+
+    def disable_track_mode(self):
+        """Disable track mode during test execution."""
+        return self.set_track_mode(False)
+
+    @staticmethod
+    def __to_bool(value, argument_name):
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)):
+            return bool(int(value))
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized in ("true", "1", "yes", "y", "on"):
+                return True
+            if normalized in ("false", "0", "no", "n", "off", "none"):
+                return False
+        raise ValueError('Invalid argument "%s" for `%s`' % (value, argument_name))
 
     def reset_confidence(self):
         """Resets the confidence level to the library default.
@@ -748,11 +797,18 @@ class ImageHorizonLibrary(
                     # These indicate a permanent misconfiguration and should not
                     # be retried within this loop.
                 #    raise
-                except ag.ImageNotFoundException as e:  # other exceptions should raise
+                except ImageNotFoundException as e:
                     last_exc = e
                     if time() > stop_time:
                         break
-                        sleep(0.1)
+                    sleep(0.1)
+                except Exception as e:
+                    if not _is_pyautogui_image_not_found(e):
+                        raise
+                    last_exc = e
+                    if time() > stop_time:
+                        break
+                    sleep(0.1)
         if location is None:
             self.__raise_image_not_found_error(reference_image, None)  # need to think about that
         x, y, score, scale = location
@@ -849,8 +905,12 @@ class ImageHorizonLibrary(
             try:
                 self.wait_for(reference_image, timeout=0, log_it=True)
                 return True
-            except (ImageNotFoundException, ag.ImageNotFoundException):
+            except ImageNotFoundException:
                 return False
+            except Exception as e:
+                if _is_pyautogui_image_not_found(e):
+                    return False
+                raise
 
 
     def locate_all(self, reference_image):
@@ -886,7 +946,7 @@ class ImageHorizonLibrary(
 
 
     def _check_path_set(self) -> None:
-        if self.get_reference_folder() is None:
+        if not self.get_reference_folder():
             raise PathNotSetException
 
 

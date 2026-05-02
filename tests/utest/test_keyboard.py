@@ -34,11 +34,21 @@ class TestKeyboard(TestCase):
         self.mock.KEYBOARD_KEYS = KEYBOARD_KEYS
         self.patcher = patch.dict('sys.modules', {'pyautogui': self.mock})
         self.patcher.start()
+        import ImageHorizonLibrary as library_module
+        import ImageHorizonLibrary.interaction._keyboard as keyboard_module
+        self.ag_patchers = [
+            patch.object(library_module, 'ag', self.mock),
+            patch.object(keyboard_module, 'ag', self.mock),
+        ]
+        for ag_patcher in self.ag_patchers:
+            ag_patcher.start()
         from ImageHorizonLibrary import ImageHorizonLibrary
         self.lib = ImageHorizonLibrary()
 
     def tearDown(self):
         self.mock.reset_mock()
+        for ag_patcher in reversed(self.ag_patchers):
+            ag_patcher.stop()
         self.patcher.stop()
 
     def test_type_with_text(self):

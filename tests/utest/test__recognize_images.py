@@ -1,14 +1,20 @@
 from unittest import TestCase
 from unittest.mock import Mock, patch
+from unittest import SkipTest
 from PIL import Image, ImageTk
 import tkinter as tk
 import time
+import os
 from pathlib import Path
 import ImageHorizonLibrary
 from robot.utils.asserts import assert_raises
 from ImageHorizonLibrary import ImageHorizonLibrary as ihl
 import ImageHorizonLibrary
 import pyautogui as ag
+
+
+if os.environ.get("RUN_GUI_TESTS") != "1":
+    raise SkipTest("GUI recognition tests require RUN_GUI_TESTS=1")
 
 
 class TestRecognizeImages(TestCase):

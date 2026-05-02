@@ -17,11 +17,15 @@ class TestScreenshot(TestCase):
         self.mock = MagicMock()
         self.patcher = patch.dict('sys.modules', {'pyautogui': self.mock})
         self.patcher.start()
+        import ImageHorizonLibrary.recognition._screenshot as screenshot_module
+        self.ag_patcher = patch.object(screenshot_module, 'ag', self.mock)
+        self.ag_patcher.start()
         from ImageHorizonLibrary import ImageHorizonLibrary
         self.lib = ImageHorizonLibrary()
 
     def tearDown(self):
         self.mock.reset_mock()
+        self.ag_patcher.stop()
         self.patcher.stop()
 
     def _take_screenshot_many_times(self, expected_filename):

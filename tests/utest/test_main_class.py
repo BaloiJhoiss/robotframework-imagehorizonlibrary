@@ -4,6 +4,7 @@ import shlex
 
 from os.path import abspath, dirname, join as path_join
 from subprocess import PIPE, Popen
+from tempfile import TemporaryDirectory
 from unittest import SkipTest, TestCase
 from warnings import warn
 
@@ -24,12 +25,21 @@ class TestMainClass(TestCase):
                                   {'pyautogui': self.pyautogui_mock,
                                    'tkinter': self.Tk_mock})
         self.patcher.start()
+        import ImageHorizonLibrary as library_module
+        self.module_patchers = [
+            patch.object(library_module, 'ag', self.pyautogui_mock),
+            patch.object(library_module, 'TK', self.Tk_mock.Tk),
+        ]
+        for module_patcher in self.module_patchers:
+            module_patcher.start()
         from ImageHorizonLibrary import ImageHorizonLibrary
         self.lib = ImageHorizonLibrary()
 
     def tearDown(self):
         for mock in (self.Tk_mock, self.clipboard_mock, self.pyautogui_mock):
             mock.reset_mock()
+        for module_patcher in reversed(self.module_patchers):
+            module_patcher.stop()
         self.patcher.stop()
 
     def test_copy(self):
@@ -72,16 +82,46 @@ class TestMainClass(TestCase):
 
     def test_set_reference_folder(self):
         self.assertEqual(self.lib.reference_folder, []) # TODO: Or set back to none
-        self.lib.set_reference_folder('/test/path')
-        self.assertEqual(self.lib.reference_folder, '/test/path')
+        with TemporaryDirectory() as temp_dir:
+            self.lib.set_reference_folder(temp_dir)
+            self.assertEqual(self.lib.reference_folder, [temp_dir])
+
+        with self.assertRaises(ValueError):
+            self.lib.set_reference_folder('/test/path')
 
     def test_set_screenshot_folder(self):
         self.assertEqual(self.lib.screenshot_folder, None)
         self.lib.set_screenshot_folder('/test/path')
         self.assertEqual(self.lib.screenshot_folder, '/test/path')
 
+    def test_set_track_mode(self):
+        self.assertEqual(self.lib.track_mode, False)
+
+        self.assertEqual(self.lib.set_track_mode(), True)
+        self.assertEqual(self.lib.track_mode, True)
+
+        self.assertEqual(self.lib.set_track_mode('false'), False)
+        self.assertEqual(self.lib.track_mode, False)
+
+        self.assertEqual(self.lib.set_track_mode('yes'), True)
+        self.assertEqual(self.lib.track_mode, True)
+
+        self.assertEqual(self.lib.set_track_mode(0), False)
+        self.assertEqual(self.lib.track_mode, False)
+
+    def test_track_mode_convenience_keywords(self):
+        self.assertEqual(self.lib.enable_track_mode(), True)
+        self.assertEqual(self.lib.track_mode, True)
+
+        self.assertEqual(self.lib.disable_track_mode(), False)
+        self.assertEqual(self.lib.track_mode, False)
+
+    def test_set_track_mode_with_invalid_value(self):
+        with self.assertRaises(ValueError):
+            self.lib.set_track_mode('sometimes')
+
     def test_set_confidence(self):
-        self.assertEqual(self.lib.confidence, None)
+        self.assertEqual(self.lib.confidence, 0.99)
 
         self.lib.set_confidence(0)
         self.assertEqual(self.lib.confidence, 0)
@@ -107,4 +147,4 @@ class TestMainClass(TestCase):
             logger_mock.warn.assert_called_once_with(
                 "Can't set confidence to invalid"
             )
-            self.assertIsNone(self.lib.confidence)
+            self.assertEqual(self.lib.confidence, 0.99)

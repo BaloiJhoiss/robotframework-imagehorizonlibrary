@@ -18,6 +18,7 @@ from robot.api import logger as LOGGER
 
 
 try:  # pragma: no cover - optional dependency
+    import numpy as np
     import cv2
     # ``DictValue`` vanished from some OpenCV builds.  Tests exercising the
     # DNN module expect it to exist, so provide a tiny stand‑in when missing to
@@ -41,6 +42,7 @@ try:  # pragma: no cover - optional dependency
         except Exception:  # pragma: no cover - attribute may be read-only
             pass
 except Exception:  # pragma: no cover - graceful fallback when cv2 is missing
+    np = None
     cv2 = None
 
 import traceback
@@ -55,6 +57,11 @@ from ..errors import (
     ImageNotInPath,
     PathNotSetException
 )
+
+
+def _is_pyautogui_image_not_found(exc):
+    image_not_found = getattr(ag, "ImageNotFoundException", None)
+    return isinstance(image_not_found, type) and isinstance(exc, image_not_found)
 
 # class ImagePathTypeEnum(Enum):
 #     STR_TYPE = True
@@ -71,26 +78,6 @@ class _RecognizeImages(object):
     DFLT_TIMEOUT = 0
     PIXEL_RATIO =0.0
 
- 
-    # def __init__(self, reference_folder: List[str]| str):
-    #     """
-    #     Parameters:
-    #     reference_folder: A string representing a single directory path or a list of strings, where each string is a
-    #     path to a directory.
-    #
-    #     Behavior:
-    #     Validates that the provided paths exist and are directories.
-    #     Raises a TypeError if reference_folder is not a str or list.
-    #     Raises a ValueError if any of the provided paths do not exist or are not directories.
-    #     Creates an internal lookup table that maps image filenames (without the .png extension) to their absolute file paths.
-    #
-    #     """
-    #     self._reference_folder = (
-    #         []
-    #         if reference_folder is None
-    #         else self.__evaluate_reference_folder(reference_folder)
-    #     )
-    #     self.look_up_table = self.__create_look_up_table()
 
     @contextmanager
     def _suppress_keyword_on_failure(self):
@@ -101,35 +88,6 @@ class _RecognizeImages(object):
         self.keyword_on_failure = keyword
 
 
-    # def __evaluate_reference_folder(self, reference_folder):
-    #     ## Check if passed value is either string or List
-    #     image_path_type: Type[list| str] = self.__check_required_type(reference_folder)
-    #     self.__check_paths(image_path_type)
-    #     self.reference_folder = reference_folder
-    #     return reference_folder if image_path_type.value is False else [reference_folder]
-
-    # def __check_paths(self, image_path_type: Type[list| str]):
-    #     if image_path_type is str:
-    #         if not Path(self.reference_folder).is_dir():
-    #             raise ValueError(self.__not_a_directory())
-    #     else:
-    #         for _, ref in enumerate(self.reference_folder):
-    #             if not Path(ref).is_dir():
-    #                 raise ValueError(self.__not_a_directory())
-    #     return True
-
-    # def __check_required_type(self, new_reference) -> Type[list | str]:
-    #     if isinstance(new_reference, list):
-    #         return list
-    #     elif isinstance(new_reference, str):
-    #         return str
-    #     else:
-    #         raise TypeError(
-    #             f"reference must either be from type 'list' or 'str' not '{type(self.reference_folder)}'"
-    #         )
-    #
-    # def __not_a_directory(self):
-    #     return f"'{self.reference_folder}' is not a directory!"
 
       
     def get_reference_folder(self) -> Union[List[str], str]:
@@ -145,112 +103,7 @@ class _RecognizeImages(object):
         """
         return self.reference_folder
     
-    
-    # def set_reference_folder(self, new_reference: Union[List[str], str]) -> None:
-    #     """
-    #     Description: Replaces the current reference folder(s) with a new one. This action rebuilds the internal
-    #     lookup table.
-    #
-    #     Parameters:
-    #     new_reference: A string or a list of strings representing the new directory path(s).
-    #
-    #     Behavior:
-    #     Performs the same validation as the __init__ method.
-    #     Raises TypeError or ValueError on invalid input.
-    #     Example:
-    #         Set Reference Folder    C:\\project\\images
-    #         Set Reference Folder    ${CURDIR}/images_v2
-    #         Set Reference Folder    ${list_of_image_paths}
-    #     """
-    #     self.__check_required_type(new_reference)
-    #     self.reference_folder = new_reference
-    #     self.look_up_table = self.__create_look_up_table()
 
-    
-
-    # def __create_look_up_table(self):
-    #     if self.reference_folder is None:
-    #         raise PathNotSetException
-    #     self.__check_required_type(self.reference_folder)
-    #     look_up_table = {}
-    #     if isinstance(self.reference_folder, list):
-    #         for path in self.reference_folder:
-    #             self._fill_look_up(look_up_table, path)
-    #     else:
-    #         self._fill_look_up(look_up_table, self.reference_folder)
-    #     return look_up_table
-
-    # @staticmethod
-    # def _fill_look_up(look_up_table: dict, path: Path | str | List[str]):
-    #         current_path_files = list(Path(path).resolve(strict=True).glob("*.png"))
-    #         for current_path_file in current_path_files:
-    #             png_name = current_path_file.stem  ## TODO: Check if it does what yo hope for -->replaced .name for .stem
-    #             if png_name in look_up_table:
-    #                 current_png_path = look_up_table[png_name]
-    #                 LOGGER.warning(
-    #                     f" You are replacing the '{png_name}' in path '{current_path_file.parent}'"
-    #                     + ""
-    #                     f" with the {png_name} from path '{current_png_path}'"
-    #                 )
-    #             look_up_table[png_name] = str(current_path_file)
-
-
-
-    # def _check_and_locate(self, reference_image, timeout=0, log_it=True):
-    #     self._check_path_set()
-    #     return self._locate_image(reference_image, timeout=timeout, log_it=log_it)
-
-
-
-    # def _locate_all(self, reference_image, haystack_image=None):
-    #     """Locate all occurrences of a reference image.
-    #
-    #     Parameters
-    #     ----------
-    #     reference_image : str
-    #         Name or path of the image to search for.
-    #     haystack_image : array-like, optional
-    #         Pre-captured screenshot to search in. If ``None``, a new screenshot
-    #         of the screen is taken.
-    #
-    #     Returns
-    #     -------
-    #     list[tuple]
-    #         A list of tuples ``(location, score, scale)`` for each match. The
-    #         list may be empty if no matches are found.
-    #
-    #     Raises
-    #     ------
-    #     InvalidImageException
-    #         If ``reference_image`` resolves to multiple files.
-    #     """
-    #     reference_images = self._get_reference_images(reference_image)
-    #     if len(reference_images) > 1:
-    #         raise InvalidImageException(
-    #             f'Locating ALL occurences of MANY files ({", ".join(reference_images)}) is not supported.'
-    #         )
-    #     locations = self._try_locate(
-    #         reference_images[0], locate_all=True, haystack_image=haystack_image
-    #     )
-    #     return locations
-
-
-
-    # def _check_path_set(self) -> None:
-    #     if self.get_reference_folder() is None:
-    #         raise PathNotSetException
-
-
-    # def click_image(self, reference_image, timeout=DFLT_TIMEOUT):
-    #     location =  self.wait_for(reference_image, timeout=timeout)
-    #     #location = self._check_and_locate(image_name, timeout=timeout)
-    #     ag.click(location)
-
-
-    # def locate(self, reference_image, timeout=DFLT_TIMEOUT, log_it=True):
-    #     location =  self.wait_for(reference_image, timeout=timeout)
-    #     return location
-        #return self._check_and_locate(reference_image, timeout=timeout)
 
     def __count_track_mode_screenshots(self, track_mode_path: Path):
         count = 0
@@ -260,7 +113,6 @@ class _RecognizeImages(object):
         return count
 
     def _locate_image(self, reference_image, timeout=0, grayscale=None, region=None, log_it=True):
-        import numpy as np
         pic=None
         path = None
         best_score = None
@@ -273,40 +125,18 @@ class _RecognizeImages(object):
             pic.save(path)
         ## TODO: This requires a rework, may not need if isinstance
         #correlating_image_path = self.look_up_table[reference_image.replace(".png", "")]
-        result  = self._try_locate(reference_image)  # Has to work, does to much instead of reference_image
-        #if isinstance(result, tuple) and len(result) == 3:
-        loc, scr, scl = result
-        print(f"type: {loc}")
- #       elif isinstance(result, np.ndarray) and result.shape == (3,):  # not relevant for default strategy 
- #               loc, scr, scl = result[0], result[1], result[2]
- #       else:
- #               loc, scr, scl = result, None, 1.0
+        loc, score, scale = self._try_locate(reference_image)
+        if score is not None and (best_score is None or score > best_score):
+            best_score = score
+        if loc is None:
+            return None
 
-        # if loc is not None:
-        #     if isinstance(loc, np.ndarray):
-        #         loc = tuple(np.asarray(loc).flatten().tolist())
-        #     if isinstance(scr, np.ndarray):
-        #         scr = float(np.asarray(scr).flat[0])
-        #     if isinstance(scl, np.ndarray):
-        #         scl = float(np.asarray(scl).flat[0])
-        _, score, scale = loc, scr, scl
-        #     #break
-        # else:
-        if scr is not None and (
-            best_score is None or scr > best_score
-        ):
-            best_score = scr
-        ## Rework till here
-        #  try/catch covered in _try_locate
-        image_location = ag.locateCenterOnScreen(
-            reference_image,
-            grayscale=grayscale,
-            region=region,
-            confidence=self.confidence,
-        )
-        center_point = image_location  # instead of ag.center(location)
-        x = center_point.x
-        y = center_point.y
+        if hasattr(loc, "left") and hasattr(loc, "top"):
+            left, top, width, height = loc.left, loc.top, loc.width, loc.height
+        else:
+            left, top, width, height = tuple(loc)[:4]
+        x = left + width / 2
+        y = top + height / 2
         ## TODO: ignored for  now
         if self.PIXEL_RATIO == 0.0:
             self.get_pixel_ratio()
@@ -568,14 +398,17 @@ class _StrategyPyautogui:
                     )
                 else:
                     if ih.confidence:
-                        LOGGER.warning(
+                        LOGGER.warn(
                             "Can't set confidence because you don't "
                             "have OpenCV (python3-opencv) installed "
                             "or a confidence level was not given."
                         )
                     location_res = locate_func(ref_image, haystack_image)
-            except (ImageNotFoundException, ag.ImageNotFoundException) as ex:
-                #LOGGER.info(ex)
+            except ImageNotFoundException:
+                location_res = None
+            except Exception as ex:
+                if not _is_pyautogui_image_not_found(ex):
+                    raise
                 location_res = None
 
         if locate_all:

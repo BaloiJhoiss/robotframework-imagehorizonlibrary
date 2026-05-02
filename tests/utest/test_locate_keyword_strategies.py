@@ -32,21 +32,21 @@ class TestLocateKeywordStrategies(TestCase):
             import sys, importlib
 
             sys.modules.pop('ImageHorizonLibrary', None)
-            return importlib.import_module('ImageHorizonLibrary')
+            lib_module = importlib.import_module('ImageHorizonLibrary')
+            import ImageHorizonLibrary.recognition._recognize_images as recognition_module
+
+            lib_module.ag = mock_pyautogui
+            recognition_module.ag = mock_pyautogui
+            return lib_module
 
     def _mock_pyautogui(self):
         mock_pyautogui = MagicMock()
 
-        # We create a fake 'Point' object that has .x and .y attributes
-        mock_point = MagicMock()
-        mock_point.x = self.expected_x  # e.g., 252.0
-        mock_point.y = self.expected_y  # e.g., 100.0
-
-        # Configure the mock to return our fake point
-        mock_pyautogui.locateCenterOnScreen.return_value = mock_point
-
-        # If the library uses locateOnScreen (which returns a 4-tuple: left, top, width, height)
-        mock_pyautogui.locateOnScreen.return_value = (self.expected_x, self.expected_y, 10, 10)
+        mock_pyautogui.locate.return_value = self.location
+        mock_pyautogui.center.side_effect = lambda box: SimpleNamespace(
+            x=box[0] + box[2] / 2, y=box[1] + box[3] / 2
+        )
+        mock_pyautogui.screenshot.return_value = self.haystack_img
 
         return mock_pyautogui
 
