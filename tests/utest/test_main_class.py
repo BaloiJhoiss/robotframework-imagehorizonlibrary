@@ -3,6 +3,7 @@ import os
 import shlex
 
 from os.path import abspath, dirname, join as path_join
+from pathlib import Path
 from subprocess import PIPE, Popen
 from tempfile import TemporaryDirectory
 from unittest import SkipTest, TestCase
@@ -119,6 +120,58 @@ class TestMainClass(TestCase):
     def test_set_track_mode_with_invalid_value(self):
         with self.assertRaises(ValueError):
             self.lib.set_track_mode('sometimes')
+
+    def test_hot_reload(self):
+        self.assertEqual(self.lib.hot_reload_enabled, False)
+
+        self.assertEqual(self.lib.hot_reload(), True)
+        self.assertEqual(self.lib.hot_reload_enabled, True)
+
+        self.assertEqual(self.lib.hot_reload('false'), False)
+        self.assertEqual(self.lib.hot_reload_enabled, False)
+
+        self.assertEqual(self.lib.hot_reload('yes'), True)
+        self.assertEqual(self.lib.hot_reload_enabled, True)
+
+        self.assertEqual(self.lib.hot_reload(0), False)
+        self.assertEqual(self.lib.hot_reload_enabled, False)
+
+    def test_hot_reload_convenience_keywords(self):
+        self.assertEqual(self.lib.enable_hot_reload(), True)
+        self.assertEqual(self.lib.hot_reload_enabled, True)
+
+        self.assertEqual(self.lib.disable_hot_reload(), False)
+        self.assertEqual(self.lib.hot_reload_enabled, False)
+
+    def test_hot_reload_with_invalid_value(self):
+        with self.assertRaises(ValueError):
+            self.lib.hot_reload('sometimes')
+
+    def test_hot_reload_refreshes_reference_images_before_locate(self):
+        from ImageHorizonLibrary.errors import ImageNotInPath
+
+        with TemporaryDirectory() as temp_dir:
+            self.lib.set_reference_folder(temp_dir)
+            Path(temp_dir, 'late_image.png').touch()
+
+            with self.assertRaises(ImageNotInPath):
+                self.lib.locate('late_image')
+
+            self.lib.hot_reload()
+            with patch.object(self.lib, '_check_and_locate', return_value=(1, 2, 0.9, 1.0)):
+                self.assertEqual(self.lib.locate('late_image'), (1, 2, 0.9, 1.0))
+
+    def test_refresh_reference_images_rebuilds_lookup_table(self):
+        with TemporaryDirectory() as temp_dir:
+            self.lib.set_reference_folder(temp_dir)
+            self.assertEqual(self.lib.look_up_table, {})
+
+            image_path = Path(temp_dir, 'manual_refresh.png')
+            image_path.touch()
+            self.assertEqual(
+                self.lib.refresh_reference_images(),
+                {'manual_refresh': str(image_path.resolve())}
+            )
 
     def test_set_confidence(self):
         self.assertEqual(self.lib.confidence, 0.99)

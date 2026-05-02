@@ -236,6 +236,7 @@ class ImageHorizonLibrary(
         validation_margin=5,
         scale_enabled=False,
         track_mode = False,
+        hot_reload=False,
     ):
         """ImageHorizonLibrary can be imported with several options.
 
@@ -274,6 +275,10 @@ class ImageHorizonLibrary(
           - ``edge_kernel_size`` – kernel size for the pre-processing filter
           - ``validate_match`` - re-check match on original image with OpenCV
           - ``validation_margin`` - margin in pixels around match for validation
+
+        ``hot_reload`` rebuilds the reference image lookup before image-based
+        keywords resolve an image name. This is useful when reference images
+        are created, deleted or replaced while a suite is running.
         """
 
         # _RecognizeImages.set_strategy(self, strategy)
@@ -344,6 +349,7 @@ class ImageHorizonLibrary(
 
         self.look_up_table = self.__create_look_up_table()
         self.track_mode = track_mode
+        self.hot_reload_enabled = self.__to_bool(hot_reload, "hot_reload")
 
     def __create_look_up_table(self):
         if self.reference_folder is None:
@@ -681,6 +687,33 @@ class ImageHorizonLibrary(
         """Disable track mode during test execution."""
         return self.set_track_mode(False)
 
+    def hot_reload(self, enabled=True):
+        """Enable or disable automatic reference image lookup refresh.
+
+        When hot reload is enabled, image-location keywords rebuild the
+        reference image lookup table before resolving the requested image. This
+        lets tests use reference images that are added, removed or replaced
+        after the library has already been imported.
+
+        ``enabled`` accepts booleans and common Robot Framework truthy/falsey
+        strings such as ``true``, ``false``, ``yes``, ``no``, ``1`` and ``0``.
+        """
+        self.hot_reload_enabled = self.__to_bool(enabled, "enabled")
+        return self.hot_reload_enabled
+
+    def enable_hot_reload(self):
+        """Enable automatic reference image lookup refresh."""
+        return self.hot_reload(True)
+
+    def disable_hot_reload(self):
+        """Disable automatic reference image lookup refresh."""
+        return self.hot_reload(False)
+
+    def refresh_reference_images(self):
+        """Rebuild the reference image lookup table immediately."""
+        self.look_up_table = self.__create_look_up_table()
+        return self.look_up_table
+
     @staticmethod
     def __to_bool(value, argument_name):
         if isinstance(value, bool):
@@ -781,6 +814,7 @@ class ImageHorizonLibrary(
         stop_time = time() + float(timeout)
         location = None
         # last_exc = None
+        self.__refresh_reference_images_if_needed()
         normalized_reference_image: str = self.__normalize_reference_image(reference_image)
         reference_path = self.__check_reference_image(normalized_reference_image)
         with self._suppress_keyword_on_failure():
@@ -878,6 +912,7 @@ class ImageHorizonLibrary(
         #    raise InvalidImageException(
         #        f'Locating ALL occurences of MANY files ({", ".join(reference_images)}) is not supported.'
         #    )
+        self.__refresh_reference_images_if_needed()
         normalized_name = self.__normalize_reference_image(reference_image)
         self.__check_reference_image(self.__normalize_reference_image(reference_image))
         ref_image_path = self.look_up_table[normalized_name]
@@ -1014,6 +1049,11 @@ class ImageHorizonLibrary(
             return self.look_up_table[reference_image]
         else:
             raise ImageNotInPath(reference_image, self.look_up_table)
+
+    def __refresh_reference_images_if_needed(self):
+        if self.hot_reload_enabled:
+            self.refresh_reference_images()
+
     @staticmethod
     def __normalize_reference_image(reference_image: str):
         # type error if not a string

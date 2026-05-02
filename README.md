@@ -31,6 +31,7 @@ Documentation has been adapted for GitHub Pages and is available at [https://3x3
 - Added `edge` recognition strategy using OpenCV (`cv2`) for robust matching on screens with pixel deviations.
 - Additional edge preprocessing filters (`gaussian`, `median`, `erode`, `dilate`) for the `edge` recognition strategy.
 - Optional multi-scale search that can be enabled with `Set Scale Range`.
+- Optional hot reload mode that refreshes reference image paths before image-based keywords run.
 - Keywords such as `Wait For`, `Locate`, and `Locate All` now have a working timeout function and return the correlation score (`score`) and detected scaling factor (`scale`).
 - Debugger now displays the best match score for located images.
 - Edge detection result messages in the debugger have been simplified.
@@ -129,6 +130,31 @@ multi-scale matching (for example `0.8`–`1.2`), use:
 
 Call `Reset Scale Range` to disable multi-scale search again.
 
+## Hot reload
+
+By default, ImageHorizonLibrary builds its reference image lookup when the
+library is imported or when `Set Reference Folder` / `Add Reference Folder` is
+used. If your tests create, remove or replace reference images while a suite is
+running, enable hot reload so image-based keywords refresh the lookup before
+resolving the image name.
+
+```robotframework
+| Hot Reload | true |
+| Click Image | generated_button.png |
+| Hot Reload | false |
+```
+
+Convenience keywords are also available:
+
+```robotframework
+| Enable Hot Reload |
+| Locate | generated_button.png |
+| Disable Hot Reload |
+```
+
+Use `Refresh Reference Images` when you want to rebuild the lookup once without
+leaving automatic hot reload enabled.
+
 ## Keyword documentation
 
 Generated keyword documentation is available in
@@ -157,6 +183,9 @@ Generated keyword documentation is available in
 | Does Exist                  | Check whether a reference image exists on the screen.                                                                                                                                                                                                         |
 | Double Click                | Double-click with the specified mouse button.                                                                                                                                                                                                                 |
 | Get Clipboard Content       | Return the current text from the system clipboard.                                                                                                                                                                                                            |
+| Hot Reload                  | Enable or disable automatic reference image lookup refresh before image-based keywords resolve an image name.                                                                                                                                                 |
+| Enable Hot Reload           | Enable automatic reference image lookup refresh.                                                                                                                                                                                                              |
+| Disable Hot Reload          | Disable automatic reference image lookup refresh.                                                                                                                                                                                                             |
 | Launch Application          | Launch an external application as a new process.                                                                                                                                                                                                              |
 | Locate                      | Locate image on screen.                                                                                                                                                                                                                                       |
 | Locate All                  | Locate all occurrences of an image on screen.                                                                                                                                                                                                                 |
@@ -175,6 +204,7 @@ Generated keyword documentation is available in
 | Press Combination           | Press multiple keyboard keys simultaneously.                                                                                                                                                                                                                  |
 | Reset Confidence            | Resets the confidence level to the library default.                                                                                                                                                                                                           |
 | Reset Scale Range           | Disables multi-scale search and resets to defaults.                                                                                                                                                                                                           |
+| Refresh Reference Images    | Rebuild the reference image lookup table immediately.                                                                                                                                                                                                         |
 | Set Confidence              | Sets the accuracy when finding images.                                                                                                                                                                                                                        |
 | Set Keyword On Failure      | Sets keyword to be run, when location-related keywords fail.                                                                                                                                                                                                  |
 | Set Reference Folder        | Sets where all reference images are stored.                                                                                                                                                                                                                   |
