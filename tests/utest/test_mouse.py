@@ -9,11 +9,21 @@ class TestMouse(TestCase):
         self.mock = MagicMock()
         self.patcher = patch.dict('sys.modules', {'pyautogui': self.mock})
         self.patcher.start()
+        import ImageHorizonLibrary as library_module
+        import ImageHorizonLibrary.interaction._mouse as mouse_module
+        self.ag_patchers = [
+            patch.object(library_module, 'ag', self.mock),
+            patch.object(mouse_module, 'ag', self.mock),
+        ]
+        for ag_patcher in self.ag_patchers:
+            ag_patcher.start()
         from ImageHorizonLibrary import ImageHorizonLibrary, MouseException
         self.lib = ImageHorizonLibrary()
 
     def tearDown(self):
         self.mock.reset_mock()
+        for ag_patcher in reversed(self.ag_patchers):
+            ag_patcher.stop()
         self.patcher.stop()
 
     def test_all_directional_clicks(self):

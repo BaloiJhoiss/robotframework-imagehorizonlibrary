@@ -178,14 +178,19 @@ class _Mouse(object):
         X grows from left to right and Y grows from top to bottom, meaning the
         top-left corner of the screen is ``(0, 0)``.
         """
-        if len(coordinates) > 2 or (len(coordinates) == 1 and
-                                    type(coordinates[0]) not in (list, tuple)):
-            raise MouseException('Invalid number of coordinates. Please give '
-                                 'either (x, y) or x, y.')
-        if len(coordinates) == 2:
+        try:
+            coordinates[:2]
+        except IndexError:
+            raise IndexError(f"Passed 'coordinates' value requires at"
+                             f" least two integer values x and y.")
+        #if len(coordinates) > 2: #or (len(coordinates) == 1 and
+                                #    type(coordinates[0]) not in (list, tuple)):
+        #    raise MouseException('Invalid number of coordinates. Please give '
+        #                         'either (x, y) or x, y.')
+        if len(coordinates) > 2:
             coordinates = (coordinates[0], coordinates[1])
-        else:
-            coordinates = coordinates[0]
+        #else:
+        #    coordinates = (coordinates[0], coordinates[1])
         try:
             coordinates = [int(coord) for coord in coordinates]
         except ValueError:

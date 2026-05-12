@@ -11,7 +11,7 @@ authors = [
 ]
 license = { text = "MIT" }
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 
 dependencies = [
   "robotframework>=7.0",
@@ -22,7 +22,7 @@ dependencies = [
   "pyperclip>=1.9.0",
   "pyrect>=0.2.0",
   "PyScreeze>=1.0.1",
-  "opencv-python-headless>=4.12"
+  "opencv-python-headless>=4.12",
 ]
 
 [project.optional-dependencies]
@@ -42,3 +42,20 @@ where = ["src"]
 
 [tool.setuptools]
 license-files = ["LICENSE"]
+
+[tool.coverage.run]
+source = ["src"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if __name__ == .__main__.:"
+]
+
+[dependency-groups]
+optional = [
+    "coverage (>=7.13.1,<8.0.0)"
+]

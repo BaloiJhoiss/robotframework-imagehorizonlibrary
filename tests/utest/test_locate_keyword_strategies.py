@@ -32,10 +32,37 @@ class TestLocateKeywordStrategies(TestCase):
             import sys, importlib
 
             sys.modules.pop('ImageHorizonLibrary', None)
-            return importlib.import_module('ImageHorizonLibrary')
+            lib_module = importlib.import_module('ImageHorizonLibrary')
+            import ImageHorizonLibrary.recognition._recognize_images as recognition_module
+
+            lib_module.ag = mock_pyautogui
+            recognition_module.ag = mock_pyautogui
+            return lib_module
+
+    def _mock_pyautogui(self):
+        mock_pyautogui = MagicMock()
+
+        mock_pyautogui.locate.return_value = self.location
+        mock_pyautogui.center.side_effect = lambda box: SimpleNamespace(
+            x=box[0] + box[2] / 2, y=box[1] + box[3] / 2
+        )
+        mock_pyautogui.screenshot.return_value = self.haystack_img
+
+        return mock_pyautogui
+
+    # def test_locate_returns_values_with_default_strategy(self):
+    #     lib_module = self._import_library(self._mock_pyautogui())
+    #     lib = lib_module.ImageHorizonLibrary(reference_folder=TESTIMG_DIR)
+    #     x, y, score, scale = lib.locate('my_picture.png')
+    #     self.assertAlmostEqual(x, self.expected_x)
+    #     self.assertAlmostEqual(y, self.expected_y)
+    #     self.assertIsInstance(score, (float, type(None)))
+    #     self.assertEqual(scale, 1.0)
 
     def test_locate_returns_values_with_default_strategy(self):
-        lib_module = self._import_library(self._mock_pyautogui())
+        # This now gets a 'smart' mock that already knows its coordinates
+        mock_py = self._mock_pyautogui()
+        lib_module = self._import_library(mock_py)
         lib = lib_module.ImageHorizonLibrary(reference_folder=TESTIMG_DIR)
         x, y, score, scale = lib.locate('my_picture.png')
         self.assertAlmostEqual(x, self.expected_x)

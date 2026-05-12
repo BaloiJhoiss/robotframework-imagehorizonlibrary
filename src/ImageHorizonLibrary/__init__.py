@@ -1,7 +1,14 @@
 # -*- coding: utf-8 -*-
 from collections import OrderedDict
 from contextlib import contextmanager
+from pathlib import Path
+from time import time,  sleep
+from typing import Type, List, Union, Tuple
 import inspect
+import math
+
+from ImageHorizonLibrary.errors import ImageNotFoundException
+
 
 from .errors import *  # import errors before checking dependencies!
 
@@ -45,8 +52,13 @@ from .version import VERSION
 __version__ = VERSION
 
 
+def _is_pyautogui_image_not_found(exc):
+    image_not_found = getattr(ag, "ImageNotFoundException", None)
+    return isinstance(image_not_found, type) and isinstance(exc, image_not_found)
+
+
 class ImageHorizonLibrary(
-    _Keyboard, _Mouse, _OperatingSystem, _RecognizeImages, _Screenshot
+    _Keyboard, _Mouse, _OperatingSystem,_RecognizeImages, _Screenshot
 ):
     """A cross-platform Robot Framework library for GUI automation.
 
@@ -205,21 +217,26 @@ class ImageHorizonLibrary(
 
     ROBOT_LIBRARY_SCOPE = "TEST SUITE"
     ROBOT_LIBRARY_VERSION = VERSION
+    DFLT_TIMEOUT = 0
+    PIXEL_RATIO = 0.0
 
     def __init__(
         self,
         reference_folder=None,
         screenshot_folder=None,
         keyword_on_failure="ImageHorizonLibrary.Take A Screenshot",
-        confidence=None,
+        confidence=float("nan"),  #TODO: Clarification: will be set to 0.99 if cv is available
         strategy="default",
-        edge_sigma=None,
-        edge_low_threshold=None,
-        edge_high_threshold=None,
+        edge_sigma=None, #TODO: cannot work with default setting
+        edge_low_threshold=None, # TODO: cannot work with default setting
+        edge_high_threshold=None, # TODO: cannot work with default setting
         edge_preprocess=None,
         edge_kernel_size=3,
         validate_match=False,
         validation_margin=5,
+        scale_enabled=False,
+        track_mode = False,
+        hot_reload=False,
     ):
         """ImageHorizonLibrary can be imported with several options.
 
@@ -258,10 +275,19 @@ class ImageHorizonLibrary(
           - ``edge_kernel_size`` – kernel size for the pre-processing filter
           - ``validate_match`` - re-check match on original image with OpenCV
           - ``validation_margin`` - margin in pixels around match for validation
+
+        ``hot_reload`` rebuilds the reference image lookup before image-based
+        keywords resolve an image name. This is useful when reference images
+        are created, deleted or replaced while a suite is running.
         """
 
         # _RecognizeImages.set_strategy(self, strategy)
-        self.reference_folder = reference_folder
+        #self.reference_folder = reference_folder
+        self.reference_folder = (
+            []
+            if reference_folder is None
+            else self.__evaluate_reference_folder(reference_folder)
+        )
         self.screenshot_folder = screenshot_folder
         self.keyword_on_failure = keyword_on_failure
         self.open_applications = OrderedDict()
@@ -271,10 +297,21 @@ class ImageHorizonLibrary(
         self.is_linux = utils.is_linux()
         self.has_retina = utils.has_retina()
         self.has_cv = utils.has_cv()
-        self.confidence = confidence
-        self.initial_confidence = confidence
+        self.confidence = 0.99 if math.isnan(confidence) else confidence
+        self.initial_confidence = self.confidence
         self._class_bases = inspect.getmro(self.__class__)
-        self.set_strategy(strategy, self.confidence)
+        self.set_strategy(
+            strategy,
+            edge_sigma=edge_sigma,
+            edge_low_threshold=edge_low_threshold,
+            edge_high_threshold=edge_high_threshold,
+            confidence=self.confidence,
+            edge_preprocess=edge_preprocess,
+            edge_kernel_size=edge_kernel_size,
+            validate_match=validate_match,
+            validation_margin=validation_margin,
+        )
+        ### TODO: This hides an annoying error, rather let the processing fail ### 
         try:
             self.edge_sigma = float(edge_sigma) if edge_sigma is not None else None
         except (TypeError, ValueError):
@@ -303,10 +340,81 @@ class ImageHorizonLibrary(
             self.validation_margin = 5
 
         # multi-scale search configuration
-        self.scale_enabled = False
+        self.scale_enabled = scale_enabled
         self.scale_min = 0.8
         self.scale_max = 1.2
         self.scale_steps = 9
+        #super.__init__(reference_folder)
+
+
+        self.look_up_table = self.__create_look_up_table()
+        self.track_mode = track_mode
+        self.hot_reload_enabled = self.__to_bool(hot_reload, "hot_reload")
+
+    def __create_look_up_table(self):
+        if self.reference_folder is None:
+            raise PathNotSetException
+        self.__check_required_type(self.reference_folder)
+        look_up_table = {}
+        if isinstance(self.reference_folder, list):
+            for path in self.reference_folder:
+                self._fill_look_up(look_up_table, path)
+        else:
+            self._fill_look_up(look_up_table, self.reference_folder)
+        return look_up_table
+
+    def __evaluate_reference_folder(self, reference_folder) -> List[str]:
+        ## Check if passed value is either string or List
+        image_path_type: Type[list|str|Path] = self.__check_required_type(reference_folder)
+        self.__check_paths(image_path_type, reference_folder)
+        self.reference_folder=  self.__update_reference_folder(image_path_type, reference_folder)
+        return self.reference_folder
+
+    def __update_reference_folder(self,image_path_type, reference_folder):
+        if image_path_type is list:
+            self.reference_folder = [str(ref) for ref in reference_folder]
+        else:
+            self.reference_folder = [str(reference_folder)]
+        return self.reference_folder
+
+    @staticmethod
+    def _fill_look_up(look_up_table: dict, path: Path | str | List[str]):
+        current_path_files = list(Path(path).resolve(strict=True).glob("*.png"))
+        for current_path_file in current_path_files:
+            png_name = current_path_file.stem  ## TODO: Check if it does what yo hope for -->replaced .name for .stem
+            if png_name in look_up_table:
+                current_png_path = look_up_table[png_name]
+                LOGGER.warn(
+                    f" You are replacing the '{png_name}' in path '{current_path_file.parent}'"
+                    + ""
+                    f" with the {png_name} from path '{current_png_path}'"
+                )
+            look_up_table[png_name] = str(current_path_file)
+
+    def __check_paths(self, image_path_type: Type[list | str |Path], reference_folder: Path):
+        if image_path_type is str or image_path_type is Path:
+            if not Path(str(reference_folder)).is_dir():
+                raise ValueError(self.__not_a_directory(reference_folder))
+        else:
+            for _, ref in enumerate(reference_folder):
+                if not Path(str(ref)).is_dir():
+                    raise ValueError(self.__not_a_directory(reference_folder))
+        return True
+
+    def __check_required_type(self, new_reference) -> Type[list | str]:
+        if isinstance(new_reference, list):
+            return list
+        elif isinstance(new_reference, str):
+            return str
+        elif isinstance(new_reference, Path):
+            return Path
+        else:
+            raise TypeError(
+                f"reference must either be from type 'list' or 'str' not '{type(new_reference)}'"
+            )
+
+    def __not_a_directory(self, reference_folder):
+        return f"'{reference_folder}' is not a directory!"
 
     def set_strategy(
         self,
@@ -478,13 +586,26 @@ class ImageHorizonLibrary(
         ag.alert(text="Test execution paused.", title="Pause", button="Continue")
 
     def _run_on_failure(self):
-        if not self.keyword_on_failure:
-            return
-        try:
-            BuiltIn().run_keyword(self.keyword_on_failure)
-        except Exception as e:
-            LOGGER.debug(e)
-            LOGGER.warn("Failed to take a screenshot. " "Is Robot Framework running?")
+        default ="""
+        <h2> Image Not Found!
+        <img scr='' alt='Image of the error resulting screenshot'>Image was not found<img/>
+        <h2/>
+                """ 
+        try: 
+            img = ag.screenshot("./not_found.png")
+            image_path = str(Path(img)).resolve()
+            default.replace("src=''", f"src='{image_path}'")
+            LOGGER.error(default)
+            print("went through")
+        except Exception:
+            pass
+        # if not self.keyword_on_failure:
+        #     return
+        # try:
+        #     BuiltIn().run_keyword(self.keyword_on_failure)
+        # except Exception as e:
+        #     LOGGER.debug(e)
+        #     LOGGER.warn("Failed to take a screenshot. " "Is Robot Framework running?")
 
     def set_keyword_on_failure(self, keyword_on_failure):
         """Sets the keyword to run when location-related keywords fail.
@@ -497,12 +618,46 @@ class ImageHorizonLibrary(
         """
         self.keyword_on_failure = keyword_on_failure
 
-    def set_reference_folder(self, reference_folder_path):
-        """Sets where all reference images are stored.
 
-        See `library importing` for format of the reference folder path.
+    def set_reference_folder(self, new_reference: Union[List[str], str]) -> None:
         """
-        self.reference_folder = reference_folder_path
+        Description: Replaces the current reference folder(s) with a new one. This action rebuilds the internal
+        lookup table.
+
+        Parameters:
+        new_reference: A string or a list of strings representing the new directory path(s).
+
+        Behavior:
+        Performs the same validation as the __init__ method.
+        Raises TypeError or ValueError on invalid input.
+        Example:
+            Set Reference Folder    C:\\project\\images
+            Set Reference Folder    ${CURDIR}/images_v2
+            Set Reference Folder    ${list_of_image_paths}
+        """
+        self.reference_folder = self.__evaluate_reference_folder(new_reference)
+        self.look_up_table = self.__create_look_up_table()
+
+    def add_reference_folder(self, new_reference: Union[List[str], str, Path]) -> None:
+        if isinstance(new_reference, list) or  isinstance(new_reference, str) or isinstance(new_reference, Path):
+            #if isinstance(self.reference_folder, str):  # self.reference_folder is a list of strings?
+            #    tmp = self.reference_folder.split() # error-prone -> user has to make sure paths are separated via spaces
+            #    tmp.extend(new_reference) if isinstance(
+            #        new_reference, list
+            #    ) else tmp.append(new_reference)
+            #else:
+            tmp = self.reference_folder
+            tmp.extend(new_reference) if isinstance(
+            new_reference, list) else tmp.append(new_reference)
+            try:
+                self.reference_folder = self.__evaluate_reference_folder(tmp)
+            except ValueError:
+                raise ValueError("There are invalid PATHS in your passed argument!")
+            self.look_up_table = self.__create_look_up_table()
+        else:
+            raise TypeError(
+                f"reference must either be from type 'list' or 'str' not '{type(new_reference)}'"
+            )
 
     def set_screenshot_folder(self, screenshot_folder_path):
         """Sets the folder where screenshots are saved to.
@@ -510,6 +665,68 @@ class ImageHorizonLibrary(
         See `library importing` for more specific information.
         """
         self.screenshot_folder = screenshot_folder_path
+
+    def set_track_mode(self, enabled=True):
+        """Enable or disable track mode during test execution.
+
+        When track mode is enabled, image-location keywords save the screenshot
+        used for matching as ``track_mode-N.png`` in ``screenshot_folder`` or
+        in the current working directory when no screenshot folder is set.
+
+        ``enabled`` accepts booleans and common Robot Framework truthy/falsey
+        strings such as ``true``, ``false``, ``yes``, ``no``, ``1`` and ``0``.
+        """
+        self.track_mode = self.__to_bool(enabled, "enabled")
+        return self.track_mode
+
+    def enable_track_mode(self):
+        """Enable track mode during test execution."""
+        return self.set_track_mode(True)
+
+    def disable_track_mode(self):
+        """Disable track mode during test execution."""
+        return self.set_track_mode(False)
+
+    def hot_reload(self, enabled=True):
+        """Enable or disable automatic reference image lookup refresh.
+
+        When hot reload is enabled, image-location keywords rebuild the
+        reference image lookup table before resolving the requested image. This
+        lets tests use reference images that are added, removed or replaced
+        after the library has already been imported.
+
+        ``enabled`` accepts booleans and common Robot Framework truthy/falsey
+        strings such as ``true``, ``false``, ``yes``, ``no``, ``1`` and ``0``.
+        """
+        self.hot_reload_enabled = self.__to_bool(enabled, "enabled")
+        return self.hot_reload_enabled
+
+    def enable_hot_reload(self):
+        """Enable automatic reference image lookup refresh."""
+        return self.hot_reload(True)
+
+    def disable_hot_reload(self):
+        """Disable automatic reference image lookup refresh."""
+        return self.hot_reload(False)
+
+    def refresh_reference_images(self):
+        """Rebuild the reference image lookup table immediately."""
+        self.look_up_table = self.__create_look_up_table()
+        return self.look_up_table
+
+    @staticmethod
+    def __to_bool(value, argument_name):
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)):
+            return bool(int(value))
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized in ("true", "1", "yes", "y", "on"):
+                return True
+            if normalized in ("false", "0", "no", "n", "off", "none"):
+                return False
+        raise ValueError('Invalid argument "%s" for `%s`' % (value, argument_name))
 
     def reset_confidence(self):
         """Resets the confidence level to the library default.
@@ -568,3 +785,281 @@ class ImageHorizonLibrary(
         self.scale_min = 0.8
         self.scale_max = 1.2
         self.scale_steps = 9
+
+    def _check_and_locate(self, reference_image, timeout=0, log_it=True):
+        self._check_path_set()
+        return self._locate_image(reference_image, timeout=timeout, log_it=log_it)
+
+
+    def wait_for(self, reference_image, timeout=10, log_it=True):
+        """Wait until an image appears on the screen.
+
+        Parameters
+        ----------
+        reference_image : str
+            Name of the reference image to locate.
+        timeout : float, optional
+            Maximum number of seconds to wait. Defaults to ``10``.
+
+        Returns
+        -------
+        tuple
+            Tuple ``(x, y, score, scale)`` describing the match.
+
+        Raises
+        ------
+        ImageNotFoundException
+            If the image is not found within the timeout.
+        """
+        stop_time = time() + float(timeout)
+        location = None
+        # last_exc = None
+        self.__refresh_reference_images_if_needed()
+        normalized_reference_image: str = self.__normalize_reference_image(reference_image)
+        reference_path = self.__check_reference_image(normalized_reference_image)
+        with self._suppress_keyword_on_failure():
+            while True:
+                try:
+                    location = self._check_and_locate(reference_path, timeout=0, log_it=True)
+                    break
+                #except (
+                    # InvalidImageException, # Replace with ImageNotInPathException
+                    # ReferenceFolderException,  is covered ealier
+                    # StrategyException,  # why here
+                    # ScreenshotFolderException, # why here?
+                #):
+                    # These indicate a permanent misconfiguration and should not
+                    # be retried within this loop.
+                #    raise
+                except ImageNotFoundException as e:
+                    last_exc = e
+                    if time() > stop_time:
+                        break
+                    sleep(0.1)
+                except Exception as e:
+                    if not _is_pyautogui_image_not_found(e):
+                        raise
+                    last_exc = e
+                    if time() > stop_time:
+                        break
+                    sleep(0.1)
+        if location is None:
+            self.__raise_image_not_found_error(reference_image, None)  # need to think about that
+        x, y, score, scale = location
+        LOGGER.info(
+            'Image "%s" found at %r (score %.3f, scale %.2f)'
+            % (
+                reference_image,
+                (x, y),
+                score if score is not None else float('nan'),
+                scale,
+            )
+        )
+        return location
+    
+    def __raise_image_not_found_error(self, reference_image, best_score):
+        #confidence = getattr(self, "confidence", None)
+        matches = 0
+        best_score if best_score is not None else float('nan'),
+        self.confidence if self.confidence is not None else float('nan'),
+        #if log_it:
+        best_match = f"Image '{self.strategy}' was not found on screen. "\
+        f"(strategy: {self.strategy}, matches: {matches}, best score {best_score}, confidence {self.confidence}"
+            # % (
+            #     reference_image,
+            #     self.strategy,
+            #     matches,
+            #     best_score if best_score is not None else float('nan'),
+            #     self.confidence if self.confidence is not None else float('nan'),
+            # )
+        #print(best_match)
+        LOGGER.info(
+            best_match
+        )
+        self._run_on_failure()
+        raise ImageNotFoundException(
+            reference_image,
+            matches=matches,
+            best_score=best_score,
+            confidence=self.confidence,
+        )
+
+
+    def _locate_all(self, reference_image, haystack_image=None):
+        """Locate all occurrences of a reference image.
+
+        Parameters
+        ----------
+        reference_image : str
+            Name or path of the image to search for.
+        haystack_image : array-like, optional
+            Pre-captured screenshot to search in. If ``None``, a new screenshot
+            of the screen is taken.
+
+        Returns
+        -------
+        list[tuple]
+            A list of tuples ``(location, score, scale)`` for each match. The
+            list may be empty if no matches are found.
+
+        Raises
+        ------
+        InvalidImageException
+            If ``reference_image`` resolves to multiple files.
+        """
+       # reference_images = self._get_reference_images(reference_image)
+       # if len(reference_images) > 1:
+        #    raise InvalidImageException(
+        #        f'Locating ALL occurences of MANY files ({", ".join(reference_images)}) is not supported.'
+        #    )
+        self.__refresh_reference_images_if_needed()
+        normalized_name = self.__normalize_reference_image(reference_image)
+        self.__check_reference_image(self.__normalize_reference_image(reference_image))
+        ref_image_path = self.look_up_table[normalized_name]
+        locations = self._try_locate(
+            ref_image_path, locate_all=True, haystack_image=haystack_image
+        )
+        return locations
+
+
+    def does_exist(self, reference_image):
+        """Check whether a reference image exists on the screen.
+
+        Parameters
+        ----------
+        reference_image : str
+            Name of the reference image to locate.
+
+        Returns
+        -------
+        bool
+            ``True`` if the image was found, ``False`` otherwise. The keyword
+            never raises an exception.
+        """
+        with self._suppress_keyword_on_failure():
+            try:
+                self.wait_for(reference_image, timeout=0, log_it=True)
+                return True
+            except ImageNotFoundException:
+                return False
+            except Exception as e:
+                if _is_pyautogui_image_not_found(e):
+                    return False
+                raise
+
+
+    def locate_all(self, reference_image):
+        """Locate all occurrences of an image on screen.
+
+        Parameters
+        ----------
+        reference_image : str
+            Name or path of the image to locate.
+
+        Returns
+        -------
+        list[tuple]
+            List of tuples ``(x, y, score, scale)`` describing each match.
+
+        Raises
+        ------
+        InvalidImageException
+            If ``reference_image`` resolves to multiple files.
+        """
+        matches = []
+        locations = self._locate_all(reference_image)
+        if self.PIXEL_RATIO == 0.0:
+            self.get_pixel_ratio()
+        for loc, score, scale in locations:
+            center = ag.center(loc)
+            x, y = center.x, center.y
+            if self.PIXEL_RATIO > 1:
+                x = x / self.PIXEL_RATIO
+                y = y / self.PIXEL_RATIO
+            matches.append((x, y, score, scale))
+        return matches
+
+
+    def _check_path_set(self) -> None:
+        if not self.get_reference_folder():
+            raise PathNotSetException
+
+
+    def click_image(self, reference_image, timeout=DFLT_TIMEOUT):
+        location = self.wait_for(reference_image, timeout=timeout)
+        # location = self._check_and_locate(image_name, timeout=timeout)
+        ag.click(location)
+        return location
+
+
+    def locate(self, reference_image, timeout=DFLT_TIMEOUT, log_it=True):
+        location = self.wait_for(reference_image, timeout=timeout)
+        return location
+
+
+    def click(self, button: str = "left"):
+        ag.click(button=button)
+
+
+    def click_to_the_left_of_image(
+            self, reference_image, offset, clicks, button="left", interval=0.0
+    ):
+        x, y, score, scale = self.wait_for(reference_image, timeout=0)
+        location = (x,y)
+        new_location = self._change_coordinates_of_location(location, x=-abs(int(offset)))
+        updated_location = new_location[0], new_location[1], score, scale
+        ag.click(new_location, clicks=int(clicks), button=button, interval=interval)
+        return updated_location
+
+
+    def click_to_the_right_of_image(
+            self, reference_image, offset, clicks, button="left", interval=0.0
+    ):
+        x, y, score, scale = self.wait_for(reference_image, timeout=0)
+        location = (x,y)
+        new_location = self._change_coordinates_of_location(location, x=abs(int(offset)))
+        updated_location = new_location[0], new_location[1], score, scale
+        ag.click(new_location, clicks=int(clicks), button=button, interval=interval)
+        return updated_location
+
+
+    def click_to_the_above_of_image(
+            self, reference_image, offset, clicks, button="left", interval=0.0
+    ):
+        x, y, score, scale = self.wait_for(reference_image, timeout=0)
+        location = (x,y)
+        new_location = self._change_coordinates_of_location(location, y=-abs(int(offset)))
+        updated_location = new_location[0], new_location[1], score, scale
+        ag.click(new_location, clicks=int(clicks), button=button, interval=interval)
+        return updated_location
+
+
+    def click_to_the_below_of_image(
+            self, reference_image, offset, clicks, button="left", interval=0.0
+    ):
+        x, y, score, scale = self.wait_for(reference_image, timeout=0)
+        location = (x,y)
+        new_location = self._change_coordinates_of_location(location, y=abs(int(offset)))
+        updated_location = new_location[0], new_location[1], score, scale
+        ag.click(new_location, clicks=int(clicks), button=button, interval=interval)
+        return updated_location
+
+    def __check_reference_image(self, reference_image):
+        if reference_image in self.look_up_table:
+            return self.look_up_table[reference_image]
+        else:
+            raise ImageNotInPath(reference_image, self.look_up_table)
+
+    def __refresh_reference_images_if_needed(self):
+        if self.hot_reload_enabled:
+            self.refresh_reference_images()
+
+    @staticmethod
+    def __normalize_reference_image(reference_image: str):
+        # type error if not a string
+        return reference_image.lower().replace(" ", "").replace(".png","")
+
+
+    def _change_coordinates_of_location(self, location, x=0, y=0) -> Tuple[int]:
+        new_x, new_y  = location[0] + x, location[0] + y
+        return (new_x, new_y)

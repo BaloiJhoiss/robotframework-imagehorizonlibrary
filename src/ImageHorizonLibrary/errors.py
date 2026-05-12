@@ -27,18 +27,18 @@ class ImageNotFoundException(Exception):
         """
 
         self.image_name = image_name
-        self.matches = matches
+        self.matches = matches  # TODO: when is this parameter useful?
         self.best_score = best_score
         self.confidence = confidence
 
     def __str__(self):
-        msg = 'Reference image "%s" was not found on screen' % self.image_name
+        msg = f"Reference image '{self.image_name}' was not found on screen"
         details = []
         if self.matches:
             details.append(f"matches found: {self.matches}")
         if self.best_score is not None and self.confidence is not None:
             details.append(
-                f"best score {self.best_score:.2f} (confidence {self.confidence:.2f})"
+                f"best score {self.best_score:.2f} and (confidence {self.confidence:.2f})"
             )
         elif self.best_score is not None:
             details.append(f"best score {self.best_score:.2f}")
@@ -74,3 +74,22 @@ class ScreenshotFolderException(Exception):
 
 class StrategyException(Exception):
     pass
+
+class PathNotSetException(Exception):
+    KEYWORD = ""
+    PATH_NOT_SET = f"""This error occured most likey to the fact
+                       that you tried to use the {KEYWORD} keyword without having a path set earlier.
+                       Please use the 'Set Reference Keyword' or  during the import of the ImageHorizionNG
+                       library pass a value to 'reference_folder' argument.
+                    """
+
+    def __str__(self):
+        return  self.PATH_NOT_SET
+    
+class ImageNotInPath(KeyError):
+    def __init__(self, image_name, image_path):
+        self.__image_name = image_name
+        self.__image_path = image_path
+    
+    def __str__(self):
+        return f"image '{self.__image_name}' was not found in path(s) {self.__image_path}"
