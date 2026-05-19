@@ -125,7 +125,7 @@ class _RecognizeImages(object):
             pic.save(path)
         ## TODO: This requires a rework, may not need if isinstance
         #correlating_image_path = self.look_up_table[reference_image.replace(".png", "")]
-        loc, score, scale = self._try_locate(reference_image)
+        loc, score, scale = self._try_locate(reference_image)# choose one of the options
         if score is not None and (best_score is None or score > best_score):
             best_score = score
         if loc is None:
@@ -135,8 +135,8 @@ class _RecognizeImages(object):
             left, top, width, height = loc.left, loc.top, loc.width, loc.height
         else:
             left, top, width, height = tuple(loc)[:4]
-        x = left + width / 2
-        y = top + height / 2
+        x = int(left + width / 2)
+        y = int(top + height / 2)
         ## TODO: ignored for  now
         if self.PIXEL_RATIO == 0.0:
             self.get_pixel_ratio()
@@ -289,40 +289,51 @@ class _StrategyPyautogui:
         """Store reference to the owning ImageHorizonLibrary instance."""
         self.ih_instance = image_horizon_instance
 
-    def _try_locate(self, ref_image, haystack_image=None, locate_all=False):
-        """Locate a reference image using PyAutoGUI's matching.
-
-        Parameters
-        ----------
-        ref_image : str
-            Path to the reference image.
-        haystack_image : image, optional
-            Screenshot to search in. If ``None``, a screenshot is taken.
-        locate_all : bool, optional
-            If ``True``, return all matches; otherwise only the first match.
-
-        Returns
-        -------
-        list or tuple
-            When ``locate_all`` is ``False`` a tuple ``(location, score, scale)``
-            is returned. ``location`` may be ``None`` if no match was found. When
-            ``locate_all`` is ``True`` a list of such tuples is returned.
-        """
-        import numpy as np
+    def utils_cv2_locate_all(self,ref_image, location_res, haystack_image=None):
         ih = self.ih_instance
-
-        if haystack_image is None:
-            haystack_image = ag.screenshot()
-
-        if getattr(ih, "has_cv", False) and getattr(ih, "scale_enabled", False):
+        if location_res is None:
+            locations = []
+        else:
+            locations = list(location_res)
+            locations = [(loc.left, loc.top, loc.width, loc.height) for loc in locations]
+        scores = []
+        haystack_np = np.array(haystack_image)
+        if ih.has_cv and len(locations)>0:
             haystack_np = np.array(haystack_image)
             if haystack_np.ndim == 3:
                 haystack_gray = cv2.cvtColor(haystack_np, cv2.COLOR_RGB2GRAY)
             else:
                 haystack_gray = haystack_np
             needle_gray = cv2.imread(ref_image, cv2.IMREAD_GRAYSCALE)
+            result = cv2.matchTemplate(
+                haystack_gray, needle_gray, cv2.TM_CCOEFF_NORMED
+            )
+            for x, y, _,_ in locations:
+                scores.append(float(result[y][x]))
+        else:
+            #scores = [None] * len(locations)
+            return [(None, None, None)]
+        return [(loc, scr, 1.0) for loc, scr in zip(locations, scores)]
+
+
+    def utils_cv2(self,ref_image, haystack_image=None, locate_all=False):
+        """
+        
+        """
+        import numpy as np
+        ih = self.ih_instance # image horizon
+
+        
+
+        if getattr(ih, "has_cv", False) and getattr(ih, "scale_enabled", False):
+            haystack_np = np.array(haystack_image)
+            if haystack_np.ndim == 3:
+                haystack_gray = cv2.cvtColor(haystack_np, cv2.COLOR_RGB2GRAY) #  automatically gray conversion
+            else:
+                haystack_gray = haystack_np
+            needle_gray = cv2.imread(ref_image, cv2.IMREAD_GRAYSCALE)
             scales = np.linspace(ih.scale_min, ih.scale_max, ih.scale_steps)
-            confidence = ih.confidence or 0.9
+            confidence = ih.confidence or 0.9 # why?
             if locate_all:
                 matches = []
                 for scale in scales:
@@ -384,17 +395,79 @@ class _StrategyPyautogui:
                 if best_loc is None or best_score < confidence:
                     return (None, best_score if best_score >= 0 else None, best_scale)
                 return (best_loc, best_score, best_scale)
+            
+
+
+    def _locate_image_score(self, ref_image_path, haystack_image=None, grayscale=False):
+        ih = self.ih_instance
+        
+        # 1. Prepare the Haystack (The Screen)
+        if haystack_image is None:
+            haystack_image = ag.screenshot() # Returns PIL Image
+        
+        # Convert PIL to NumPy (OpenCV format)
+        haystack_np = np.array(haystack_image)
+        haystack_cv = cv2.cvtColor(haystack_np, cv2.COLOR_RGB2BGR)
+        
+        # 2. Prepare the Reference (The Template)
+        ref_cv = cv2.imread(ref_image_path)
+        
+        # 3. Optional Grayscale Conversion
+        if grayscale:
+            haystack_cv = cv2.cvtColor(haystack_cv, cv2.COLOR_BGR2GRAY)
+            ref_cv = cv2.cvtColor(ref_cv, cv2.COLOR_BGR2GRAY)
+
+        # 4. Perform the Match
+        # Note: PyAutoGUI.locate() returns the box, but we need the result map for the score
+        res = cv2.matchTemplate(haystack_cv, ref_cv, cv2.TM_CCOEFF_NORMED)
+        min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(res)
+
+        # 5. Determine if it meets your threshold
+        score = float(max_val)
+        location = None
+        
+        if score >= ih.confidence:
+            # Reconstruct the PyAutoGUI-style box: (left, top, width, height)  --> NO!
+            h, w = ref_cv.shape[:2]
+            #location = (max_loc[0], max_loc[1], w, h)
+            location = (max_loc[0], max_loc[1])
+
+        return location, score, 1.0
+
+    def _try_locate(self, ref_image, haystack_image=None, locate_all=False, grayscale=False):
+        """Locate a reference image using PyAutoGUI's matching.
+
+        Parameters
+        ----------
+        ref_image : str
+            Path to the reference image.
+        haystack_image : image, optional
+            Screenshot to search in. If ``None``, a screenshot is taken.
+        locate_all : bool, optional
+            If ``True``, return all matches; otherwise only the first match.
+
+        Returns
+        -------
+        list or tuple
+            When ``locate_all`` is ``False`` a tuple ``(location, score, scale)``
+            is returned. ``location`` may be ``None`` if no match was found. When
+            ``locate_all`` is ``True`` a list of such tuples is returned.
+        """
+        ih = self.ih_instance
+        #self.utils_cv2(ref_image, haystack_image)  # not really necessary since pyscreeze offers similar capabilities
+
+        if haystack_image is None:
+            haystack_image = ag.screenshot()
 
         if locate_all:
             locate_func = ag.locateAll
         else:
             locate_func = ag.locate  # Copy below,take screenshots
-
         with ih._suppress_keyword_on_failure():
             try:
                 if ih.has_cv and ih.confidence:
                     location_res = locate_func(
-                        ref_image, haystack_image, confidence=ih.confidence
+                        ref_image, haystack_image, confidence=ih.confidence, grayscale=grayscale
                     )
                 else:
                     if ih.confidence:
@@ -403,57 +476,31 @@ class _StrategyPyautogui:
                             "have OpenCV (python3-opencv) installed "
                             "or a confidence level was not given."
                         )
-                    location_res = locate_func(ref_image, haystack_image)
+                    location_res = locate_func(ref_image, haystack_image, grayscale=grayscale)  ### for locate_all a generator type
             except ImageNotFoundException:
                 location_res = None
             except Exception as ex:
                 if not _is_pyautogui_image_not_found(ex):
                     raise
                 location_res = None
-
-        if locate_all:
-            if location_res is None:
-                locations = []
-            else:
-                locations = [tuple(box) for box in location_res]
-            scores = []
-            if ih.has_cv and locations:
-                try:
-                    haystack_np = np.array(haystack_image)
-                    if haystack_np.ndim == 3:
-                        haystack_gray = cv2.cvtColor(haystack_np, cv2.COLOR_RGB2GRAY)
-                    else:
-                        haystack_gray = haystack_np
-                    needle_gray = cv2.imread(ref_image, cv2.IMREAD_GRAYSCALE)
-                    result = cv2.matchTemplate(
-                        haystack_gray, needle_gray, cv2.TM_CCOEFF_NORMED
-                    )
-                    for x, y, w, h in locations:
-                        scores.append(float(result[y][x]))
-                except Exception:
-                    scores = [None] * len(locations)
-            else:
-                scores = [None] * len(locations)
-            return [(loc, scr, 1.0) for loc, scr in zip(locations, scores)]
-
+            # self.utils_cv2_locate_all(ref_image,location_res, haystack_image=haystack_image, locate_all=locate_all)  
+            # not really necessary -> undermines pyautogui
         location = location_res
         score = None
-        if ih.has_cv and location is not None:
-            try:
-                haystack_np = np.array(haystack_image)
-                if haystack_np.ndim == 3:
-                    haystack_gray = cv2.cvtColor(haystack_np, cv2.COLOR_RGB2GRAY)
-                else:
-                    haystack_gray = haystack_np
-                needle_gray = cv2.imread(ref_image, cv2.IMREAD_GRAYSCALE)
-                res = cv2.matchTemplate(
-                    haystack_gray, needle_gray, cv2.TM_CCOEFF_NORMED
-                )
-                _, max_val, _, _ = cv2.minMaxLoc(res)
-                score = float(max_val)
-            except Exception:
+        if isinstance(location, tuple):
+            if ih.has_cv and location is not None:
+                #try:
+                _, score, _ = self._locate_image_score(ref_image, haystack_image, grayscale=grayscale) # ignores cv coordination
+                #_, max_val, _, _ = cv2.minMaxLoc(res)  ## before change --> res instead of location
+                #score = float(max_val)
+                #except Exception:
+            else:
                 score = None
-        return (location, score, 1.0)
+            return location, score, 1.0
+        elif location is None:
+            return location, score, 0.0
+        else:
+            return self.utils_cv2_locate_all(ref_image,location,haystack_image)
     
 class _StrategyCv2:
     """Image matching strategy using OpenCV edge detection."""

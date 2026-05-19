@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import re
 from collections import OrderedDict
 from contextlib import contextmanager
 from pathlib import Path
@@ -389,7 +390,18 @@ class ImageHorizonLibrary(
                     + ""
                     f" with the {png_name} from path '{current_png_path}'"
                 )
+            #if re.match(r"\w+\*-(\d+)\.png", png_name):
+
             look_up_table[png_name] = str(current_path_file)
+
+    def check_multi_selection(self, png_name:str, path: Path):
+        multi_selection_pattern = r"((\w+(\s+)?)+)\$-(\d+)\.png"
+        if  multi_select :=  re.match(multi_selection_pattern, png_name):
+            image_prefix = multi_select.group(1)
+            ### Think this through
+
+
+
 
     def __check_paths(self, image_path_type: Type[list | str |Path], reference_folder: Path):
         if image_path_type is str or image_path_type is Path:
@@ -820,7 +832,7 @@ class ImageHorizonLibrary(
         with self._suppress_keyword_on_failure():
             while True:
                 try:
-                    location = self._check_and_locate(reference_path, timeout=0, log_it=True)
+                    location = self._check_and_locate(reference_path, timeout=0, log_it=log_it)
                     break
                 #except (
                     # InvalidImageException, # Replace with ImageNotInPathException
@@ -987,7 +999,6 @@ class ImageHorizonLibrary(
 
     def click_image(self, reference_image, timeout=DFLT_TIMEOUT):
         location = self.wait_for(reference_image, timeout=timeout)
-        # location = self._check_and_locate(image_name, timeout=timeout)
         ag.click(location)
         return location
 

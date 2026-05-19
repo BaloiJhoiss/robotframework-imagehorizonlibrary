@@ -7,14 +7,14 @@ import time
 import os
 from pathlib import Path
 import ImageHorizonLibrary
-from robot.utils.asserts import assert_raises
+#from robot.utils.asserts import assert_raises
 from ImageHorizonLibrary import ImageHorizonLibrary as ihl
-import ImageHorizonLibrary
+#import ImageHorizonLibrary
 import pyautogui as ag
 
 
-if os.environ.get("RUN_GUI_TESTS") != "1":
-    raise SkipTest("GUI recognition tests require RUN_GUI_TESTS=1")
+#if os.environ.get("RUN_GUI_TESTS") != "1":
+#    raise SkipTest("GUI recognition tests require RUN_GUI_TESTS=1")
 
 
 class TestRecognizeImages(TestCase):
@@ -53,7 +53,6 @@ class TestRecognizeImages(TestCase):
 
         # 2. Give the OS a split second to actually render the pixels
         time.sleep(0.5)
-
         try:
             # 3. EXECUTION: Now pyautogui looks at the VIRTUAL SCREEN
             # This is the "real" test of locateCenterOnScreen
@@ -97,7 +96,7 @@ class TestRecognizeImages(TestCase):
 
         # 2. Give the OS a split second to actually render the pixels
         time.sleep(0.5)
-
+       
         try:
             # 3. EXECUTION: Now pyautogui looks at the VIRTUAL SCREEN
             # This is the "real" test of locateCenterOnScreen
@@ -134,8 +133,8 @@ class TestRecognizeImagesNotFound(TestRecognizeImages):
         
         
     def test_click_image_not_found(self):
-        with self.assertRaises(ag.ImageNotFoundException) as excinfo:
-            self.ih_lib.click_image("my_picture.png")
+        with self.assertRaises(ImageHorizonLibrary.errors.ImageNotFoundException) as excinfo:
+            self.ih_lib.click_image("404_page_not_found.png")
         #self.assertEqual(str(excinfo.exception), "'my_picture' file name was not found in path '{}'")
     def test_click_image_not_in_path(self):
         with self.assertRaises(ImageHorizonLibrary.errors.ImageNotInPath) as excinfo:
@@ -205,7 +204,6 @@ class TestRecognizeImagesHappyPath(TestRecognizeImages):
 
         # 2. Give the OS a split second to actually render the pixels
         time.sleep(0.5)
-
         try:
             # 3. EXECUTION: Now pyautogui looks at the VIRTUAL SCREEN
             # This is the "real" test of locateCenterOnScreen
